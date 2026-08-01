@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#0a0a0a" />
+<title>Toast · Strength</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html, body { background:#09090b; -webkit-tap-highlight-color:transparent; }
+  * { -webkit-user-select:none; }
+  input, textarea { -webkit-user-select:text; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ---------- constants ----------
+const STORAGE_KEY = "toast:sessions";
+const SEED_FLAG = "toast:seeded_v1";
+const CFG_KEY = "toast:cfg";
+const PUSH = "#e8552e";
+const PULL = "#3ea6ff";
+const today = () => new Date().toISOString().slice(0, 10);
+const uid = () => Math.random().toString(36).slice(2, 9);
+const fmtClock = (s) => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+
+const LS = {
+  get(k){ try { const v = localStorage.getItem(k); return v==null ? null : JSON.parse(v); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } },
+};
+
+const TEMPLATES = {
+  lower: { label: "Lower", exercises: [
+    { name: "Trap Bar Deadlift", target: "4×5", sets: 4 },
+    { name: "Bulgarian Split Squat", target: "3×8 each", sets: 3, perSide: true },
+    { name: "One arm KB Swing", target: "4×8", sets: 4 },
+    { name: "Nordic Curl", target: "3×5", sets: 3 },
+  ]},
+  upper: { label: "Upper", exercises: [
+    { name: "Split Switch Jumps", target: "3×8-10", sets: 3 },
+    { name: "Push Press", target: "4×5", sets: 4 },
+    { name: "DB Incline / Flat Bench", target: "3×8", sets: 3 },
+    { name: "DB Row / Cable Row", target: "3×10 each", sets: 3, perSide: true },
+    { name: "DB Romanian Deadlift", target: "3×8", sets: 3 },
+    { name: "Copenhagen Leg Lift", target: "3×8 each", sets: 3, perSide: true },
+  ]},
+  bulletproofing: { label: "Bulletproofing", exercises: [
+    { name: "Nordic Curl", target: "3×5", sets: 3 },
+    { name: "Copenhagen Leg Lift", target: "3×8 each", sets: 3, perSide: true },
+    { name: "Single Leg RDL", target: "3×8 each", sets: 3, perSide: true },
+    { name: "Single Leg Glute Bridge", target: "3×12 each", sets: 3, perSide: true },
+    { name: "Single Leg Calf Raise", target: "3×15 each", sets: 3, perSide: true },
+    { name: "Tib Raise", target: "3×15-20", sets: 3 },
+    { name: "Rear Delt Face Pull", target: "3×12", sets: 3 },
+    { name: "Banded Dead Bug", target: "3×8 each", sets: 3, perSide: true },
+  ]},
+};
+
+const SEED_SESSION = {
+  id: "seed-20260729", savedAt: Date.parse("2026-07-29T18:00:00"), synced: false,
+  type: "Lower", date: "2026-07-29", feel: 3, notes: "", finisher: null,
+  exercises: [
+    { id:"s1", name:"Trap Bar Deadlift", target:"4×5", perSide:false, feel:3, note:"Felt good overall — 275 was heavy but doable",
+      sets:[{weight:"225",reps:"5",note:""},{weight:"225",reps:"5",note:""},{weight:"245",reps:"5",note:""},{weight:"275",reps:"5",note:""}] },
+    { id:"s2", name:"Bulgarian Split Squat", target:"3×8 each", perSide:true, feel:4, note:"Felt strong",
+      sets:[{weight:"45",reps:"8",note:""},{weight:"45",reps:"8",note:""},{weight:"50",reps:"8",note:""}] },
+    { id:"s3", name:"One arm KB Swing", target:"4×8", perSide:false, feel:3, note:"60 is hard but doable. Not sure how to progress",
+      sets:[{weight:"60",reps:"8",note:""},{weight:"60",reps:"8",note:""},{weight:"60",reps:"8",note:""}] },
+    { id:"s4", name:"TRX Hamstring Curl", target:"3×5", perSide:false, feel:null, note:"Nordics hurt my hamstrings — testing a replacement",
+      sets:[{weight:"0",reps:"10",note:""},{weight:"0",reps:"10",note:""},{weight:"0",reps:"10",note:""}] },
+  ],
+};
+
+const FEELS = [
+  { v:1, label:"Rough" }, { v:2, label:"Flat" }, { v:3, label:"Normal" }, { v:4, label:"Good" }, { v:5, label:"Peak" },
+];
+
+function buildDraft(templateKey) {
+  const t = TEMPLATES[templateKey];
+  return { type:t.label, date:today(), feel:3, notes:"", finisher:null,
+    exercises: t.exercises.map((ex)=>({ id:uid(), name:ex.name, target:ex.target, perSide:!!ex.perSide, feel:null, note:"",
+      sets: Array.from({length:ex.sets}, ()=>({weight:"",reps:"",note:""})) })) };
+}
+
+// ---------- sheet sync ----------
+async function postToSheet(session, cfg) {
+  if (!cfg || !cfg.url) return false;
+  try {
+    await fetch(cfg.url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ token: cfg.token || "", session }),
+      redirect: "follow",
+    });
+    return true;
+  } catch (e) { return false; }
+}
+
+// ---------- export helpers ----------
+function downloadFile(filename, text, mime) {
+  try {
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    return true;
+  } catch (e) { return false; }
+}
+const csvCell = (v) => { const s = v==null?"":String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+function buildCSV(list) {
+  const header = ["date","session","exercise","target","set","weight","reps","set_note","exercise_feel","exercise_note","session_feel","session_note"];
+  const rows = [header];
+  const ordered = [...list].sort((a,b)=> a.date>b.date?1:a.date<b.date?-1:(a.savedAt||0)-(b.savedAt||0));
+  ordered.forEach((s)=>{
+    let sFirst=true;
+    s.exercises.forEach((e)=>{
+      const done=e.sets.filter((st)=>st.weight||st.reps||st.note); let eFirst=true;
+      done.forEach((st,i)=>{ rows.push([s.date,s.type,e.name,e.target||"",i+1,st.weight||"",st.reps||"",st.note||"",
+        eFirst?(e.feel||""):"", eFirst?(e.note||""):"", sFirst?(s.feel||""):"", sFirst?(s.notes||""):""]); eFirst=false; sFirst=false; });
+    });
+    if (s.finisher){ const f=s.finisher; const rounds=(f.rounds&&f.rounds.length)?f.rounds:[{round:1,push:f.totalPush,pull:f.totalPull}]; let fFirst=true;
+      rounds.forEach((r)=>{ rows.push([s.date,s.type,"Push/Pull Ladder (finisher)","descending",r.round,r.push,r.pull,
+        fFirst?`duration ${fmtClock(f.seconds||0)}`:"","","",sFirst?(s.feel||""):"",sFirst?(s.notes||""):""]); fFirst=false; sFirst=false; }); }
+  });
+  return rows.map((r)=>r.map(csvCell).join(",")).join("\n");
+}
+function summaryText(s) {
+  const lines=["Toast — Strength Log",`${s.type} · ${s.date}`];
+  const feel=FEELS.find((f)=>f.v===Number(s.feel));
+  lines.push(`Overall feel: ${s.feel}/5 (${feel?feel.label:""})`,"");
+  s.exercises.forEach((e)=>{
+    const done=e.sets.filter((st)=>st.weight||st.reps||st.note);
+    if(!done.length&&!e.note&&!e.feel) return;
+    lines.push(`${e.name}${e.target?` (${e.target})`:""}`);
+    done.forEach((st,i)=>{ const base=`  ${i+1}) ${st.weight||"BW"} × ${st.reps||"?"}${e.perSide?" /side":""}`; lines.push(st.note?`${base} — ${st.note}`:base); });
+    if(e.feel||e.note){ const p=[]; if(e.feel)p.push(`felt ${e.feel}/5`); if(e.note)p.push(e.note); lines.push(`     ↳ ${p.join(" · ")}`); }
+  });
+  if(s.finisher){ const f=s.finisher; const rc=f.rounds?f.rounds.length:0; lines.push("","Finisher — Push/Pull Ladder",`  ${rc} rounds · ${f.totalPush} push-ups · ${f.totalPull} pull-ups · ${fmtClock(f.seconds||0)}`); if(rc) lines.push(`  Rounds: ${f.rounds.map((r)=>`${r.push}/${r.pull}`).join(", ")}`); }
+  if(s.notes){ lines.push("",`Session notes: ${s.notes}`); }
+  return lines.join("\n");
+}
+
+// ---------- Finisher ----------
+function Finisher({ value, onChange, onReset }) {
+  const [open,setOpen]=useState(false);
+  const [seconds,setSeconds]=useState(0);
+  const [running,setRunning]=useState(false);
+  const [round,setRound]=useState(1);
+  const [move,setMove]=useState("push");
+  const [val,setVal]=useState(8);
+  const [totalPush,setTotalPush]=useState(0);
+  const [totalPull,setTotalPull]=useState(0);
+  const [rounds,setRounds]=useState([]);
+  const [pendingPush,setPendingPush]=useState(null);
+  const intervalRef=useRef(null); const secRef=useRef(0);
+
+  useEffect(()=>{ if(running){ intervalRef.current=setInterval(()=>{ secRef.current+=1; setSeconds(secRef.current); },1000);} else { clearInterval(intervalRef.current);} return ()=>clearInterval(intervalRef.current); },[running]);
+
+  const accent = move==="push"?PUSH:PULL;
+  const snapshot=(r,tp,tu)=>onChange({rounds:r,totalPush:tp,totalPull:tu,seconds:secRef.current});
+
+  const logSwitch=()=>{
+    if(!running) setRunning(true);
+    if(move==="push"){ const nextPush=totalPush+val; setPendingPush(val); setTotalPush(nextPush); setMove("pull"); setVal(3); snapshot(rounds,nextPush,totalPull);}
+    else { const nextPull=totalPull+val; const nextRounds=[...rounds,{round,push:pendingPush,pull:val}]; setTotalPull(nextPull); setRounds(nextRounds); setRound(round+1); setMove("push"); setVal(8); setPendingPush(null); snapshot(nextRounds,totalPush,nextPull);}
+  };
+  const undo=()=>{
+    if(move==="pull"&&pendingPush!==null){ const nextPush=totalPush-pendingPush; setTotalPush(nextPush); setVal(pendingPush); setPendingPush(null); setMove("push"); snapshot(rounds,nextPush,totalPull);}
+    else if(rounds.length){ const last=rounds[rounds.length-1]; const nextRounds=rounds.slice(0,-1); const nextPush=totalPush-last.push; const nextPull=totalPull-last.pull; setTotalPush(nextPush); setTotalPull(nextPull); setRound(last.round); setRounds(nextRounds); setMove("push"); setVal(last.push); snapshot(nextRounds,nextPush,nextPull);}
+  };
+  const finish=()=>{ setRunning(false); snapshot(rounds,totalPush,totalPull); setOpen(false); };
+  const reset=()=>{ clearInterval(intervalRef.current); secRef.current=0; setOpen(false); setSeconds(0); setRunning(false); setRound(1); setMove("push"); setVal(8); setTotalPush(0); setTotalPull(0); setRounds([]); setPendingPush(null); onReset(); };
+
+  if(value && !open){
+    return (
+      <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-3">
+        <div className="flex items-center justify-between">
+          <div className="font-bold text-[15px] text-zinc-100">Push / Pull Ladder</div>
+          <button onClick={reset} className="text-xs text-zinc-500 font-semibold">redo</button>
+        </div>
+        <div className="flex gap-4 mt-1 text-sm tabular-nums">
+          <span><span style={{color:PUSH}} className="font-black">{value.totalPush}</span> <span className="text-zinc-500 text-xs">push</span></span>
+          <span><span style={{color:PULL}} className="font-black">{value.totalPull}</span> <span className="text-zinc-500 text-xs">pull</span></span>
+          <span className="text-zinc-400">{value.rounds?value.rounds.length:0} rounds</span>
+          <span className="text-zinc-400">{fmtClock(value.seconds||0)}</span>
+        </div>
+      </div>
+    );
+  }
+  if(!open){
+    return (
+      <button onClick={()=>setOpen(true)} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 text-sm font-bold text-zinc-200">
+        Start Push / Pull Ladder
+        <div className="text-[11px] font-normal text-zinc-500 mt-0.5">8 push → 3 pull, descend to failure</div>
+      </button>
+    );
+  }
+  return (
+    <div className="bg-zinc-900 rounded-xl border p-3" style={{borderColor:accent}}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] uppercase tracking-widest text-zinc-500">Round {round}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-lg font-black tabular-nums text-zinc-100">{fmtClock(seconds)}</span>
+          <button onClick={()=>setRunning((r)=>!r)} className="text-[10px] uppercase tracking-wide border border-zinc-700 text-zinc-400 rounded px-2 py-1">{running?"Pause":seconds?"Resume":"Start"}</button>
+        </div>
+      </div>
+      <div className="text-center text-xl font-black mb-2" style={{color:accent}}>{move==="push"?"Push-ups":"Pull-ups"}</div>
+      <div className="grid grid-cols-3 gap-2">
+        {Array.from({length:9},(_,i)=>(
+          <button key={i} onClick={()=>setVal(i)} className="rounded-lg py-3 text-2xl font-black border tabular-nums"
+            style={ val===i ? {background:accent,color:"#0d0d0d",borderColor:accent} : {background:"#1e1e1e",color:"#eeeae2",borderColor:"#2a2a2a"} }>{i}</button>
+        ))}
+      </div>
+      <button onClick={logSwitch} className="w-full mt-3 rounded-lg py-3 font-black text-zinc-950 uppercase tracking-wide" style={{background:accent}}>{move==="push"?"Log & switch to pull":"Log & next round"}</button>
+      <div className="flex gap-3 mt-2 text-sm tabular-nums justify-center text-zinc-400">
+        <span style={{color:PUSH}}>{totalPush} push</span><span style={{color:PULL}}>{totalPull} pull</span>
+      </div>
+      {rounds.length>0 && (
+        <div className="mt-2 max-h-24 overflow-y-auto text-xs text-zinc-500 space-y-0.5">
+          {[...rounds].reverse().map((r,i)=>(
+            <div key={i} className="flex justify-between border-b border-zinc-800 pb-0.5">
+              <span>R{r.round}</span><span style={{color:PUSH}}>{r.push} push</span><span style={{color:PULL}}>{r.pull} pull</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2 mt-3">
+        <button onClick={undo} className="flex-1 border border-zinc-800 text-zinc-500 rounded-lg py-2 text-xs uppercase tracking-wide">Undo</button>
+        <button onClick={finish} className="flex-1 bg-emerald-500 text-zinc-950 rounded-lg py-2 text-xs font-bold uppercase tracking-wide">Finish ladder</button>
+      </div>
+      <div className="text-[10px] text-zinc-600 text-center mt-2">Progress is saved live — Finish or just Save the session.</div>
+    </div>
+  );
+}
+
+// ---------- App ----------
+function initSessions(){
+  let loaded = LS.get(STORAGE_KEY) || [];
+  const seeded = LS.get(SEED_FLAG);
+  if(!seeded){ if(!loaded.some((s)=>s.id===SEED_SESSION.id)) loaded=[SEED_SESSION,...loaded]; LS.set(STORAGE_KEY,loaded); LS.set(SEED_FLAG,true); }
+  return loaded;
+}
+
+function App(){
+  const [sessions,setSessions]=useState(initSessions);
+  const [templateKey,setTemplateKey]=useState("lower");
+  const [draft,setDraft]=useState(()=>buildDraft("lower"));
+  const [toast,setToast]=useState("");
+  const [openNotes,setOpenNotes]=useState(()=>new Set());
+  const [showSettings,setShowSettings]=useState(false);
+  const [showRestore,setShowRestore]=useState(false);
+  const [restoreText,setRestoreText]=useState("");
+  const [cfg,setCfg]=useState(()=>LS.get(CFG_KEY)||{url:"",token:""});
+  const [confirmOpen,setConfirmOpen]=useState(false);
+
+  const flash=(m)=>{ setToast(m); setTimeout(()=>setToast(""),2600); };
+  const persist=(next)=>{ setSessions(next); LS.set(STORAGE_KEY,next); };
+  const saveCfg=(c)=>{ setCfg(c); LS.set(CFG_KEY,c); };
+  const markSynced=(id, ok)=>{ const next=(LS.get(STORAGE_KEY)||[]).map((s)=>s.id===id?{...s,synced:ok}:s); persist(next); };
+
+  const lastTimeFor=useCallback((name)=>{
+    const prior=sessions.find((s)=>s.exercises.some((e)=>e.name===name));
+    if(!prior) return null;
+    const ex=prior.exercises.find((e)=>e.name===name);
+    const done=ex.sets.filter((s)=>s.weight||s.reps);
+    if(!done.length) return null;
+    const nums=done.map((s)=>parseFloat(s.weight)).filter((n)=>!isNaN(n));
+    const top=nums.length?Math.max(...nums):null;
+    const topSet=top!=null?done.find((s)=>parseFloat(s.weight)===top):done[0];
+    return `${prior.date} · top ${topSet.weight||"BW"} × ${topSet.reps||"?"}`;
+  },[sessions]);
+
+  const swapTemplate=(key)=>{ setTemplateKey(key); setDraft(buildDraft(key)); setOpenNotes(new Set()); };
+  const setField=(k,v)=>setDraft((d)=>({...d,[k]:v}));
+  const setExField=(exId,k,v)=>setDraft((d)=>({...d,exercises:d.exercises.map((e)=>e.id===exId?{...e,[k]:v}:e)}));
+  const setSet=(exId,i,field,v)=>setDraft((d)=>({...d,exercises:d.exercises.map((e)=>e.id===exId?{...e,sets:e.sets.map((s,si)=>si===i?{...s,[field]:v}:s)}:e)}));
+  const addSet=(exId)=>setDraft((d)=>({...d,exercises:d.exercises.map((e)=>e.id===exId?{...e,sets:[...e.sets,{weight:"",reps:"",note:""}]}:e)}));
+  const removeSet=(exId)=>setDraft((d)=>({...d,exercises:d.exercises.map((e)=>e.id===exId&&e.sets.length>1?{...e,sets:e.sets.slice(0,-1)}:e)}));
+  const removeExercise=(exId)=>setDraft((d)=>({...d,exercises:d.exercises.filter((e)=>e.id!==exId)}));
+  const addExercise=()=>setDraft((d)=>({...d,exercises:[...d.exercises,{id:uid(),name:"New movement",target:"",perSide:false,feel:null,note:"",sets:[{weight:"",reps:"",note:""}]}]}));
+  const renameExercise=(exId,v)=>setExField(exId,"name",v);
+  const toggleNote=(key)=>setOpenNotes((prev)=>{ const n=new Set(prev); n.has(key)?n.delete(key):n.add(key); return n; });
+
+  const requestSave=()=>{
+    const hasLifts=draft.exercises.some((e)=>e.sets.some((s)=>s.weight||s.reps));
+    if(!hasLifts && !draft.finisher){ flash("Log at least one set or the finisher before saving."); return; }
+    setConfirmOpen(true);
+  };
+  const doSave=async()=>{
+    setConfirmOpen(false);
+    const record={id:uid(),savedAt:Date.now(),synced:false,...draft};
+    const next=[record,...sessions].sort((a,b)=>a.date<b.date?1:-1);
+    persist(next);
+    setDraft(buildDraft(templateKey)); setOpenNotes(new Set());
+    window.scrollTo(0,0);
+    flash(cfg.url?"Saved — syncing to Sheet…":"Session saved.");
+    if(cfg.url){ const ok=await postToSheet(record,cfg); markSynced(record.id,ok); if(!ok) flash("Saved locally — Sheet sync pending (gear ▸ Sync)."); else flash("Saved + synced to Sheet ✓"); }
+  };
+
+  const resyncAll=async()=>{
+    if(!cfg.url){ flash("Add your Sheet URL in Settings first."); return; }
+    const pending=sessions.filter((s)=>!s.synced);
+    if(!pending.length){ flash("Everything's already synced."); return; }
+    flash(`Syncing ${pending.length}…`);
+    for(const s of pending){ const ok=await postToSheet(s,cfg); if(ok) markSynced(s.id,true); }
+    flash("Re-sync done.");
+  };
+
+  const exportCSV=async()=>{ const csv=buildCSV(sessions); const dl=downloadFile(`toast-training-${today()}.csv`,csv,"text/csv"); try{await navigator.clipboard.writeText(csv);}catch(e){} flash(dl?"CSV downloaded + copied.":"CSV copied to clipboard."); };
+  const exportJSON=async()=>{ const j=JSON.stringify(sessions,null,2); const dl=downloadFile(`toast-backup-${today()}.json`,j,"application/json"); try{await navigator.clipboard.writeText(j);}catch(e){} flash(dl?"Backup downloaded + copied.":"Backup copied."); };
+  const copyLast=async()=>{ if(!sessions.length){ flash("No saved sessions yet."); return; } try{ await navigator.clipboard.writeText(summaryText(sessions[0])); flash("Last session copied."); }catch(e){ flash("Couldn't copy."); } };
+  const doRestore=()=>{ try{ const p=JSON.parse(restoreText); if(!Array.isArray(p)) throw new Error(); persist(p); setRestoreText(""); setShowRestore(false); flash(`Restored ${p.length} sessions.`);}catch(e){ flash("That doesn't look like a valid backup."); } };
+
+  const doneSets=draft.exercises.reduce((a,e)=>a+e.sets.filter((s)=>s.weight||s.reps).length,0);
+  const totalSets=draft.exercises.reduce((a,e)=>a+e.sets.length,0);
+  const pendingCount=sessions.filter((s)=>!s.synced).length;
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100" style={{fontFamily:"ui-sans-serif,system-ui,-apple-system,sans-serif"}}>
+      <div className="max-w-md mx-auto px-4 pb-28 pt-5" style={{paddingTop:"max(1.25rem, env(safe-area-inset-top))"}}>
+
+        {/* Header */}
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <div className="text-amber-400 font-bold tracking-[0.2em] text-xs uppercase">Toast · Strength</div>
+            <div className="text-2xl font-black tracking-tight leading-none mt-1">{draft.type}</div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-3xl font-black tabular-nums text-amber-400 leading-none">{doneSets}<span className="text-zinc-600 text-lg">/{totalSets}</span></div>
+              <div className="text-[10px] uppercase tracking-widest text-zinc-500">sets logged</div>
+            </div>
+            <button onClick={()=>setShowSettings((v)=>!v)} aria-label="Settings"
+              className={`w-9 h-9 rounded-lg border flex items-center justify-center text-lg ${showSettings?"border-amber-400 text-amber-400 bg-amber-400/10":"border-zinc-800 text-zinc-400"}`}>⚙</button>
+          </div>
+        </div>
+
+        {/* Settings & Sync panel */}
+        {showSettings && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] uppercase tracking-widest text-zinc-500">Settings & Sync</span>
+              <span className={`text-[10px] font-bold ${cfg.url?(pendingCount?"text-amber-400":"text-emerald-400"):"text-zinc-600"}`}>
+                {cfg.url ? (pendingCount?`${pendingCount} pending`:"All synced ✓") : "Sheet not connected"}
+              </span>
+            </div>
+            <input placeholder="Google Apps Script Web app URL" value={cfg.url} onChange={(e)=>saveCfg({...cfg,url:e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none mb-2" />
+            <input placeholder="Token (must match Code.gs)" value={cfg.token} onChange={(e)=>saveCfg({...cfg,token:e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none" />
+            <button onClick={resyncAll} className="w-full mt-2 bg-amber-400 text-zinc-950 rounded-md py-2 text-xs font-bold">Sync pending to Sheet</button>
+
+            <div className="border-t border-zinc-800 mt-3 pt-3 flex gap-2">
+              <button onClick={copyLast} className="flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold">Copy last</button>
+              <button onClick={exportCSV} disabled={!sessions.length} className="flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold disabled:opacity-40">Export CSV</button>
+              <button onClick={exportJSON} disabled={!sessions.length} className="flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold disabled:opacity-40">Backup</button>
+            </div>
+            <button onClick={()=>setShowRestore((v)=>!v)} className="w-full mt-2 text-[11px] text-zinc-500 font-semibold">{showRestore?"Hide restore":"Restore from backup"}</button>
+            {showRestore && (
+              <div className="mt-1">
+                <textarea rows={3} value={restoreText} onChange={(e)=>setRestoreText(e.target.value)} placeholder="Paste a JSON backup…" className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none resize-none" />
+                <button onClick={doRestore} className="w-full mt-1 bg-zinc-800 text-zinc-100 rounded-md py-2 text-xs font-bold">Load backup (replaces current)</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Template picker */}
+        <div className="flex gap-2 mb-4">
+          {Object.entries(TEMPLATES).map(([k,t])=>(
+            <button key={k} onClick={()=>swapTemplate(k)} className={`flex-1 text-xs font-semibold px-2 py-2 rounded-lg border ${templateKey===k?"border-amber-400 text-amber-400 bg-amber-400/10":"border-zinc-800 text-zinc-400"}`}>{t.label}</button>
+          ))}
+        </div>
+
+        {/* Date */}
+        <label className="block mb-4">
+          <span className="text-[10px] uppercase tracking-widest text-zinc-500">Date</span>
+          <input type="date" value={draft.date} onChange={(e)=>setField("date",e.target.value)} className="w-full mt-1 bg-zinc-900 border border-zinc-800 rounded-md px-2 py-2 text-sm text-zinc-100" />
+        </label>
+
+        {/* Exercises */}
+        <div className="space-y-3">
+          {draft.exercises.map((ex)=>{
+            const last=lastTimeFor(ex.name);
+            return (
+              <div key={ex.id} className="bg-zinc-900 rounded-xl border border-zinc-800 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <input value={ex.name} onChange={(e)=>renameExercise(ex.id,e.target.value)} className="w-full bg-transparent font-bold text-[15px] text-zinc-100 outline-none" />
+                    <div className="text-[11px] text-zinc-500 mt-0.5">
+                      {ex.target && <span className="text-zinc-400">{ex.target}</span>}
+                      {last && <span className="text-amber-400/80">{ex.target?"  ·  ":""}Last: {last}</span>}
+                    </div>
+                  </div>
+                  <button onClick={()=>removeExercise(ex.id)} className="text-zinc-600 text-xs px-1 shrink-0">✕</button>
+                </div>
+                <div className="mt-2 space-y-1.5">
+                  {ex.sets.map((s,i)=>{
+                    const key=`${ex.id}:${i}`; const noteOpen=openNotes.has(key)||(s.note&&s.note.length>0);
+                    return (
+                      <div key={i}>
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 text-center text-xs font-bold text-zinc-600 tabular-nums">{i+1}</span>
+                          <input inputMode="decimal" placeholder="wt / BW" value={s.weight} onChange={(e)=>setSet(ex.id,i,"weight",e.target.value)} className="flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-2 text-sm text-zinc-100 text-center tabular-nums outline-none" />
+                          <span className="text-zinc-600 text-sm">×</span>
+                          <input inputMode="numeric" placeholder="reps" value={s.reps} onChange={(e)=>setSet(ex.id,i,"reps",e.target.value)} className="flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-2 text-sm text-zinc-100 text-center tabular-nums outline-none" />
+                          <button onClick={()=>toggleNote(key)} className="shrink-0 w-7 text-base leading-none" style={{color:s.note?"#fbbf24":"#52525b"}}>✎</button>
+                        </div>
+                        {noteOpen && (
+                          <input placeholder="What happened on this set — heavy, dropped weight, form…" value={s.note||""} onChange={(e)=>setSet(ex.id,i,"note",e.target.value)} className="mt-1 ml-7 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none" style={{width:"calc(100% - 1.75rem)"}} />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-3 mt-2">
+                  <button onClick={()=>addSet(ex.id)} className="text-xs text-amber-400 font-semibold">+ set</button>
+                  {ex.sets.length>1 && <button onClick={()=>removeSet(ex.id)} className="text-xs text-zinc-500">− set</button>}
+                </div>
+                <div className="mt-3 pt-3 border-t border-zinc-800">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase tracking-widest text-zinc-600 mr-1">Felt</span>
+                    {[1,2,3,4,5].map((v)=>(
+                      <button key={v} onClick={()=>setExField(ex.id,"feel",ex.feel===v?null:v)} className={`w-6 h-6 rounded-full text-[11px] font-bold border ${ex.feel===v?"bg-amber-400 text-zinc-950 border-amber-400":"bg-zinc-950 text-zinc-500 border-zinc-800"}`}>{v}</button>
+                    ))}
+                  </div>
+                  <input placeholder="Exercise note — how the movement went overall…" value={ex.note} onChange={(e)=>setExField(ex.id,"note",e.target.value)} className="w-full mt-2 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none" />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <button onClick={addExercise} className="w-full mt-3 border border-dashed border-zinc-800 rounded-xl py-2.5 text-sm text-zinc-400 font-semibold">+ Add movement</button>
+
+        {/* Finisher */}
+        <div className="mt-5">
+          <span className="text-[10px] uppercase tracking-widest text-zinc-500">Finisher</span>
+          <div className="mt-1.5"><Finisher value={draft.finisher} onChange={(r)=>setField("finisher",r)} onReset={()=>setField("finisher",null)} /></div>
+        </div>
+
+        {/* Overall session */}
+        <div className="mt-6 pt-5 border-t border-zinc-800">
+          <span className="text-[10px] uppercase tracking-widest text-zinc-500">Overall session</span>
+          <div className="flex gap-1.5 mt-1.5">
+            {FEELS.map((f)=>(
+              <button key={f.v} onClick={()=>setField("feel",f.v)} className={`flex-1 py-2 rounded-md text-xs font-semibold border ${Number(draft.feel)===f.v?"bg-amber-400 text-zinc-950 border-amber-400":"bg-zinc-900 text-zinc-400 border-zinc-800"}`}>
+                <div className="text-sm font-black">{f.v}</div><div className="text-[9px] uppercase tracking-wide">{f.label}</div>
+              </button>
+            ))}
+          </div>
+          <textarea rows={2} placeholder="Session notes — sleep, footy fatigue, time crunch…" value={draft.notes} onChange={(e)=>setField("notes",e.target.value)} className="w-full mt-3 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 outline-none resize-none" />
+        </div>
+      </div>
+
+      {/* Save bar */}
+      <div className="fixed bottom-0 inset-x-0 bg-gradient-to-t from-zinc-950 via-zinc-950 to-transparent pt-6 pb-4 px-4">
+        <div className="max-w-md mx-auto">
+          <button onClick={requestSave} className="w-full bg-amber-400 text-zinc-950 font-black rounded-xl py-3.5 text-base tracking-wide">Save session</button>
+        </div>
+      </div>
+
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-6">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-xs text-center">
+            <div className="text-lg font-black text-zinc-100">Save this session?</div>
+            <div className="text-sm text-zinc-400 mt-1">{draft.type} · {draft.date}</div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={()=>setConfirmOpen(false)} className="flex-1 border border-zinc-700 text-zinc-300 rounded-xl py-3 font-bold">No</button>
+              <button onClick={doSave} className="flex-1 bg-amber-400 text-zinc-950 rounded-xl py-3 font-black">Yes, save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-24 inset-x-0 flex justify-center px-4 pointer-events-none">
+          <div className="bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm rounded-full px-4 py-2 shadow-lg text-center max-w-xs">{toast}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
