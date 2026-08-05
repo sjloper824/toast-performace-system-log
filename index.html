@@ -6,28 +6,19 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="theme-color" content="#0a0a0a" />
-<title>Toast · Strength</title>
+<title>Toast Performance System</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   html, body { background:#09090b; -webkit-tap-highlight-color:transparent; }
   * { -webkit-user-select:none; }
-  input, textarea { -webkit-user-select:text; }
-  /* iOS zooms the page when a focused input's font is < 16px. Force 16px on
-     everything the user types into so the page never zooms on focus. */
-  input, textarea, select { font-size:16px; }
-  /* Keep the native date control left-aligned and sized to its content so it
-     lines up with the fields below instead of stretching awkwardly. */
+  input, textarea, select { -webkit-user-select:text; font-size:16px; }
   input[type="date"] { -webkit-appearance:none; appearance:none; }
-
-  /* Visible fallback so a load problem never shows a silent black screen */
   #load-error { color:#e4e4e7; font-family:ui-sans-serif,system-ui,sans-serif; padding:24px; max-width:28rem; margin:0 auto; }
   #load-error b { color:#fbbf24; }
 </style>
 </head>
 <body>
 <div id="root"></div>
-
-<!-- React bundled directly into the file: no external JS CDN, no in-browser compiler -->
 <script>/**
  * @license React
  * react.production.min.js
@@ -330,16 +321,6 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 </script>
 <script>
 try {
-// Shim: map the JSX runtime calls onto the bundled global React (no modules needed)
-var _Fragment = React.Fragment;
-function _jsxDEV(type, config, maybeKey){
-  var props = {}, children;
-  if (config) { for (var k in config){ if (k === 'children') { children = config.children; } else { props[k] = config[k]; } } }
-  if (maybeKey !== undefined) props.key = maybeKey;
-  var args = [type, props];
-  if (children !== undefined) args = args.concat(Array.isArray(children) ? children : [children]);
-  return React.createElement.apply(null, args);
-}
 const {
   useState,
   useEffect,
@@ -353,7 +334,10 @@ const SEED_FLAG = "toast:seeded_v1";
 const CFG_KEY = "toast:cfg";
 const PUSH = "#e8552e";
 const PULL = "#3ea6ff";
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+};
 const uid = () => Math.random().toString(36).slice(2, 9);
 const fmtClock = s => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 const LS = {
@@ -376,7 +360,7 @@ const LS = {
 };
 const TEMPLATES = {
   lower: {
-    label: "Lower",
+    label: "Lower — Trap Bar, Bulgarians + KB Swings",
     exercises: [{
       name: "Trap Bar Deadlift",
       target: "4×5",
@@ -398,7 +382,7 @@ const TEMPLATES = {
     }]
   },
   upper: {
-    label: "Upper",
+    label: "Upper — Press, Pull + Romanian DL",
     exercises: [{
       name: "Split Switch Jumps",
       target: "3×8-10",
@@ -427,8 +411,38 @@ const TEMPLATES = {
       perSide: true
     }]
   },
+  upperPower: {
+    label: "Upper Power — Med Ball, Pull + Carry",
+    exercises: [{
+      name: "Med Ball Slam",
+      target: "3×6",
+      sets: 3
+    }, {
+      name: "Med Ball Rotational Throw",
+      target: "3×6 each",
+      sets: 3,
+      perSide: true
+    }, {
+      name: "Chest-Supported Row",
+      target: "3×10",
+      sets: 3
+    }, {
+      name: "Rear Delt Face Pull",
+      target: "3×12",
+      sets: 3
+    }, {
+      name: "Farmer's Carry",
+      target: "4 rounds × ~40m",
+      sets: 4
+    }, {
+      name: "Pallof Press",
+      target: "3×10 each",
+      sets: 3,
+      perSide: true
+    }]
+  },
   bulletproofing: {
-    label: "Bulletproofing",
+    label: "Bulletproofing — Prehab",
     exercises: [{
       name: "Copenhagen Leg Lift",
       target: "3×8 each",
@@ -463,6 +477,10 @@ const TEMPLATES = {
       sets: 3,
       perSide: true
     }]
+  },
+  freestyle: {
+    label: "Freestyle — Blank",
+    exercises: []
   }
 };
 const SEED_SESSION = {
@@ -860,161 +878,123 @@ function Finisher({
     onReset();
   };
   if (value && !open) {
-    return /*#__PURE__*/_jsxDEV("div", {
-      className: "bg-zinc-900 rounded-xl border border-zinc-800 p-3",
-      children: [/*#__PURE__*/_jsxDEV("div", {
-        className: "flex items-center justify-between",
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          className: "font-bold text-[15px] text-zinc-100",
-          children: "Push / Pull Ladder"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-          onClick: reset,
-          className: "text-xs text-zinc-500 font-semibold",
-          children: "redo"
-        }, void 0, false)]
-      }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-        className: "flex gap-4 mt-1 text-sm tabular-nums",
-        children: [/*#__PURE__*/_jsxDEV("span", {
-          children: [/*#__PURE__*/_jsxDEV("span", {
-            style: {
-              color: PUSH
-            },
-            className: "font-black",
-            children: value.totalPush
-          }, void 0, false), " ", /*#__PURE__*/_jsxDEV("span", {
-            className: "text-zinc-500 text-xs",
-            children: "push"
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-          children: [/*#__PURE__*/_jsxDEV("span", {
-            style: {
-              color: PULL
-            },
-            className: "font-black",
-            children: value.totalPull
-          }, void 0, false), " ", /*#__PURE__*/_jsxDEV("span", {
-            className: "text-zinc-500 text-xs",
-            children: "pull"
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-          className: "text-zinc-400",
-          children: [value.rounds ? value.rounds.length : 0, " rounds"]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-          className: "text-zinc-400",
-          children: fmtClock(value.seconds || 0)
-        }, void 0, false)]
-      }, void 0, true)]
-    }, void 0, true);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "bg-zinc-900 rounded-xl border border-zinc-800 p-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "font-bold text-[15px] text-zinc-100"
+    }, "Push / Pull Ladder"), /*#__PURE__*/React.createElement("button", {
+      onClick: reset,
+      className: "text-xs text-zinc-500 font-semibold"
+    }, "redo")), /*#__PURE__*/React.createElement("div", {
+      className: "flex gap-4 mt-1 text-sm tabular-nums"
+    }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: PUSH
+      },
+      className: "font-black"
+    }, value.totalPush), " ", /*#__PURE__*/React.createElement("span", {
+      className: "text-zinc-500 text-xs"
+    }, "push")), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: PULL
+      },
+      className: "font-black"
+    }, value.totalPull), " ", /*#__PURE__*/React.createElement("span", {
+      className: "text-zinc-500 text-xs"
+    }, "pull")), /*#__PURE__*/React.createElement("span", {
+      className: "text-zinc-400"
+    }, value.rounds ? value.rounds.length : 0, " rounds"), /*#__PURE__*/React.createElement("span", {
+      className: "text-zinc-400"
+    }, fmtClock(value.seconds || 0))));
   }
   if (!open) {
-    return /*#__PURE__*/_jsxDEV("button", {
+    return /*#__PURE__*/React.createElement("button", {
       onClick: () => setOpen(true),
-      className: "w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 text-sm font-bold text-zinc-200",
-      children: ["Start Push / Pull Ladder", /*#__PURE__*/_jsxDEV("div", {
-        className: "text-[11px] font-normal text-zinc-500 mt-0.5",
-        children: "8 push → 3 pull, descend to failure"
-      }, void 0, false)]
-    }, void 0, true);
+      className: "w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 text-sm font-bold text-zinc-200"
+    }, "Start Push / Pull Ladder", /*#__PURE__*/React.createElement("div", {
+      className: "text-[11px] font-normal text-zinc-500 mt-0.5"
+    }, "8 push → 3 pull, descend to failure"));
   }
-  return /*#__PURE__*/_jsxDEV("div", {
+  return /*#__PURE__*/React.createElement("div", {
     className: "bg-zinc-900 rounded-xl border p-3",
     style: {
       borderColor: accent
-    },
-    children: [/*#__PURE__*/_jsxDEV("div", {
-      className: "flex items-center justify-between mb-2",
-      children: [/*#__PURE__*/_jsxDEV("span", {
-        className: "text-[10px] uppercase tracking-widest text-zinc-500",
-        children: ["Round ", round]
-      }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-        className: "flex items-center gap-2",
-        children: [/*#__PURE__*/_jsxDEV("span", {
-          className: "text-lg font-black tabular-nums text-zinc-100",
-          children: fmtClock(seconds)
-        }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-          onClick: () => setRunning(r => !r),
-          className: "text-[10px] uppercase tracking-wide border border-zinc-700 text-zinc-400 rounded px-2 py-1",
-          children: running ? "Pause" : seconds ? "Resume" : "Start"
-        }, void 0, false)]
-      }, void 0, true)]
-    }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-      className: "text-center text-xl font-black mb-2",
-      style: {
-        color: accent
-      },
-      children: move === "push" ? "Push-ups" : "Pull-ups"
-    }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-      className: "grid grid-cols-3 gap-2",
-      children: Array.from({
-        length: 9
-      }, (_, i) => /*#__PURE__*/_jsxDEV("button", {
-        onClick: () => setVal(i),
-        className: "rounded-lg py-3 text-2xl font-black border tabular-nums",
-        style: val === i ? {
-          background: accent,
-          color: "#0d0d0d",
-          borderColor: accent
-        } : {
-          background: "#1e1e1e",
-          color: "#eeeae2",
-          borderColor: "#2a2a2a"
-        },
-        children: i
-      }, i, false))
-    }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-      onClick: logSwitch,
-      className: "w-full mt-3 rounded-lg py-3 font-black text-zinc-950 uppercase tracking-wide",
-      style: {
-        background: accent
-      },
-      children: move === "push" ? "Log & switch to pull" : "Log & next round"
-    }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-      className: "flex gap-3 mt-2 text-sm tabular-nums justify-center text-zinc-400",
-      children: [/*#__PURE__*/_jsxDEV("span", {
-        style: {
-          color: PUSH
-        },
-        children: [totalPush, " push"]
-      }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-        style: {
-          color: PULL
-        },
-        children: [totalPull, " pull"]
-      }, void 0, true)]
-    }, void 0, true), rounds.length > 0 && /*#__PURE__*/_jsxDEV("div", {
-      className: "mt-2 max-h-24 overflow-y-auto text-xs text-zinc-500 space-y-0.5",
-      children: [...rounds].reverse().map((r, i) => /*#__PURE__*/_jsxDEV("div", {
-        className: "flex justify-between border-b border-zinc-800 pb-0.5",
-        children: [/*#__PURE__*/_jsxDEV("span", {
-          children: ["R", r.round]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-          style: {
-            color: PUSH
-          },
-          children: [r.push, " push"]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("span", {
-          style: {
-            color: PULL
-          },
-          children: [r.pull, " pull"]
-        }, void 0, true)]
-      }, i, true))
-    }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-      className: "flex gap-2 mt-3",
-      children: [/*#__PURE__*/_jsxDEV("button", {
-        onClick: undo,
-        className: "flex-1 border border-zinc-800 text-zinc-500 rounded-lg py-2 text-xs uppercase tracking-wide",
-        children: "Undo"
-      }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-        onClick: finish,
-        className: "flex-1 bg-emerald-500 text-zinc-950 rounded-lg py-2 text-xs font-bold uppercase tracking-wide",
-        children: "Finish ladder"
-      }, void 0, false)]
-    }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-      className: "text-[10px] text-zinc-600 text-center mt-2",
-      children: "Progress is saved live — Finish or just Save the session."
-    }, void 0, false)]
-  }, void 0, true);
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Round ", round), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-lg font-black tabular-nums text-zinc-100"
+  }, fmtClock(seconds)), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setRunning(r => !r),
+    className: "text-[10px] uppercase tracking-wide border border-zinc-700 text-zinc-400 rounded px-2 py-1"
+  }, running ? "Pause" : seconds ? "Resume" : "Start"))), /*#__PURE__*/React.createElement("div", {
+    className: "text-center text-xl font-black mb-2",
+    style: {
+      color: accent
+    }
+  }, move === "push" ? "Push-ups" : "Pull-ups"), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-3 gap-2"
+  }, Array.from({
+    length: 9
+  }, (_, i) => /*#__PURE__*/React.createElement("button", {
+    key: i,
+    onClick: () => setVal(i),
+    className: "rounded-lg py-3 text-2xl font-black border tabular-nums",
+    style: val === i ? {
+      background: accent,
+      color: "#0d0d0d",
+      borderColor: accent
+    } : {
+      background: "#1e1e1e",
+      color: "#eeeae2",
+      borderColor: "#2a2a2a"
+    }
+  }, i))), /*#__PURE__*/React.createElement("button", {
+    onClick: logSwitch,
+    className: "w-full mt-3 rounded-lg py-3 font-black text-zinc-950 uppercase tracking-wide",
+    style: {
+      background: accent
+    }
+  }, move === "push" ? "Log & switch to pull" : "Log & next round"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-3 mt-2 text-sm tabular-nums justify-center text-zinc-400"
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: PUSH
+    }
+  }, totalPush, " push"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: PULL
+    }
+  }, totalPull, " pull")), rounds.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 max-h-24 overflow-y-auto text-xs text-zinc-500 space-y-0.5"
+  }, [...rounds].reverse().map((r, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "flex justify-between border-b border-zinc-800 pb-0.5"
+  }, /*#__PURE__*/React.createElement("span", null, "R", r.round), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: PUSH
+    }
+  }, r.push, " push"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: PULL
+    }
+  }, r.pull, " pull")))), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 mt-3"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: undo,
+    className: "flex-1 border border-zinc-800 text-zinc-500 rounded-lg py-2 text-xs uppercase tracking-wide"
+  }, "Undo"), /*#__PURE__*/React.createElement("button", {
+    onClick: finish,
+    className: "flex-1 bg-emerald-500 text-zinc-950 rounded-lg py-2 text-xs font-bold uppercase tracking-wide"
+  }, "Finish ladder")), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-zinc-600 text-center mt-2"
+  }, "Progress is saved live — Finish or just Save the session."));
 }
 
 // ---------- Dashboard ----------
@@ -1022,13 +1002,11 @@ function Dashboard({
   sessions
 }) {
   if (!sessions.length) {
-    return /*#__PURE__*/_jsxDEV("div", {
-      className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center",
-      children: /*#__PURE__*/_jsxDEV("div", {
-        className: "text-zinc-400 text-sm",
-        children: "No sessions logged yet — your dashboard fills in after your first save."
-      }, void 0, false)
-    }, void 0, false);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "text-zinc-400 text-sm"
+    }, "No sessions logged yet — your dashboard fills in after your first save."));
   }
   const chronological = [...sessions].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.savedAt || 0) - (b.savedAt || 0));
   const dayMs = 86400000;
@@ -1096,107 +1074,82 @@ function Dashboard({
     color
   }) => {
     const m = max || Math.max(1, ...points.map(p => p.value));
-    return /*#__PURE__*/_jsxDEV("div", {
-      className: "flex items-end gap-1.5 h-16",
-      children: points.map((p, i) => /*#__PURE__*/_jsxDEV("div", {
-        className: "flex-1 flex flex-col items-center justify-end h-full",
-        children: /*#__PURE__*/_jsxDEV("div", {
-          className: "w-full rounded-t",
-          style: {
-            height: `${Math.max(6, p.value / m * 100)}%`,
-            background: color
-          }
-        }, void 0, false)
-      }, i, false))
-    }, void 0, false);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "flex items-end gap-1.5 h-16"
+    }, points.map((p, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      className: "flex-1 flex flex-col items-center justify-end h-full"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "w-full rounded-t",
+      style: {
+        height: `${Math.max(6, p.value / m * 100)}%`,
+        background: color
+      }
+    }))));
   };
-  return /*#__PURE__*/_jsxDEV("div", {
-    className: "space-y-4",
-    children: [/*#__PURE__*/_jsxDEV("div", {
-      className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3",
-      children: [/*#__PURE__*/_jsxDEV("div", {
-        className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2",
-        children: "Consistency"
-      }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-        className: "flex gap-4 mb-3",
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          children: [/*#__PURE__*/_jsxDEV("div", {
-            className: "text-2xl font-black text-amber-400 tabular-nums",
-            children: last7
-          }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-            className: "text-[10px] text-zinc-500 uppercase tracking-wide",
-            children: "last 7 days"
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          children: [/*#__PURE__*/_jsxDEV("div", {
-            className: "text-2xl font-black text-amber-400 tabular-nums",
-            children: last30
-          }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-            className: "text-[10px] text-zinc-500 uppercase tracking-wide",
-            children: "last 30 days"
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          children: [/*#__PURE__*/_jsxDEV("div", {
-            className: "text-2xl font-black text-amber-400 tabular-nums",
-            children: sessions.length
-          }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-            className: "text-[10px] text-zinc-500 uppercase tracking-wide",
-            children: "all time"
-          }, void 0, false)]
-        }, void 0, true)]
-      }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-        className: "flex gap-1",
-        children: days14.map((d, i) => /*#__PURE__*/_jsxDEV("div", {
-          className: `flex-1 h-3 rounded-sm ${d.hit ? "bg-amber-400" : "bg-zinc-800"}`,
-          title: d.iso
-        }, i, false))
-      }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-        className: "text-[10px] text-zinc-600 mt-1",
-        children: "last 14 days"
-      }, void 0, false)]
-    }, void 0, true), feelPts.length > 0 && /*#__PURE__*/_jsxDEV("div", {
-      className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3",
-      children: [/*#__PURE__*/_jsxDEV("div", {
-        className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2",
-        children: ["Overall feel (last ", feelPts.length, ")"]
-      }, void 0, true), /*#__PURE__*/_jsxDEV(MiniBars, {
-        points: feelPts,
-        max: 5,
-        color: "#fbbf24"
-      }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-        className: "flex gap-1.5 mt-1",
-        children: feelPts.map((p, i) => /*#__PURE__*/_jsxDEV("div", {
-          className: "flex-1 text-center text-[9px] text-zinc-600 tabular-nums",
-          children: p.value
-        }, i, false))
-      }, void 0, false)]
-    }, void 0, true), topExercises.map(name => {
-      const pts = exerciseHistory(name);
-      if (pts.length < 2) return null;
-      return /*#__PURE__*/_jsxDEV("div", {
-        className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3",
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          className: "text-[13px] font-bold text-zinc-200 mb-2",
-          children: name
-        }, void 0, false), /*#__PURE__*/_jsxDEV(MiniBars, {
-          points: pts,
-          color: "#e8552e"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-          className: "flex gap-1.5 mt-1",
-          children: pts.map((p, i) => /*#__PURE__*/_jsxDEV("div", {
-            className: "flex-1 text-center",
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              className: "text-[10px] font-bold text-zinc-300 tabular-nums",
-              children: p.label
-            }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-              className: "text-[8px] text-zinc-600",
-              children: p.sub
-            }, void 0, false)]
-          }, i, true))
-        }, void 0, false)]
-      }, name, true);
-    })]
-  }, void 0, true);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "space-y-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
+  }, "Consistency"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-4 mb-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-2xl font-black text-amber-400 tabular-nums"
+  }, last7), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-zinc-500 uppercase tracking-wide"
+  }, "last 7 days")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-2xl font-black text-amber-400 tabular-nums"
+  }, last30), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-zinc-500 uppercase tracking-wide"
+  }, "last 30 days")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-2xl font-black text-amber-400 tabular-nums"
+  }, sessions.length), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-zinc-500 uppercase tracking-wide"
+  }, "all time"))), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-1"
+  }, days14.map((d, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: `flex-1 h-3 rounded-sm ${d.hit ? "bg-amber-400" : "bg-zinc-800"}`,
+    title: d.iso
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-zinc-600 mt-1"
+  }, "last 14 days")), feelPts.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
+  }, "Overall feel (last ", feelPts.length, ")"), /*#__PURE__*/React.createElement(MiniBars, {
+    points: feelPts,
+    max: 5,
+    color: "#fbbf24"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-1.5 mt-1"
+  }, feelPts.map((p, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "flex-1 text-center text-[9px] text-zinc-600 tabular-nums"
+  }, p.value)))), topExercises.map(name => {
+    const pts = exerciseHistory(name);
+    if (pts.length < 2) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      key: name,
+      className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "text-[13px] font-bold text-zinc-200 mb-2"
+    }, name), /*#__PURE__*/React.createElement(MiniBars, {
+      points: pts,
+      color: "#e8552e"
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "flex gap-1.5 mt-1"
+    }, pts.map((p, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      className: "flex-1 text-center"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "text-[10px] font-bold text-zinc-300 tabular-nums"
+    }, p.label), /*#__PURE__*/React.createElement("div", {
+      className: "text-[8px] text-zinc-600"
+    }, p.sub)))));
+  }));
 }
 
 // ---------- App ----------
@@ -1440,410 +1393,320 @@ function App() {
   const doneSets = draft.exercises.reduce((a, e) => a + e.sets.filter(s => s.weight || s.reps).length, 0);
   const totalSets = draft.exercises.reduce((a, e) => a + e.sets.length, 0);
   const pendingCount = sessions.filter(s => !s.synced).length;
-  return /*#__PURE__*/_jsxDEV("div", {
+  return /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen bg-zinc-950 text-zinc-100",
     style: {
       fontFamily: "ui-sans-serif,system-ui,-apple-system,sans-serif"
-    },
-    children: [/*#__PURE__*/_jsxDEV("div", {
-      className: "max-w-md mx-auto px-4 pb-10 pt-5",
-      style: {
-        paddingTop: "max(1.25rem, env(safe-area-inset-top))",
-        paddingBottom: "max(2.5rem, env(safe-area-inset-bottom))"
-      },
-      children: [/*#__PURE__*/_jsxDEV("div", {
-        className: "flex items-start justify-between mb-4",
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          className: "flex items-start gap-3 min-w-0",
-          children: [/*#__PURE__*/_jsxDEV("button", {
-            onClick: () => setMenuOpen(true),
-            "aria-label": "Menu",
-            className: "w-9 h-9 shrink-0 rounded-lg border border-zinc-800 text-zinc-300 flex flex-col items-center justify-center gap-[3px]",
-            children: [/*#__PURE__*/_jsxDEV("span", {
-              className: "block w-4 h-0.5 bg-current rounded"
-            }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-              className: "block w-4 h-0.5 bg-current rounded"
-            }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-              className: "block w-4 h-0.5 bg-current rounded"
-            }, void 0, false)]
-          }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-            className: "min-w-0",
-            children: [/*#__PURE__*/_jsxDEV("div", {
-              className: "text-amber-400 font-bold tracking-[0.2em] text-xs uppercase",
-              children: "Toast · Strength"
-            }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-              className: "text-2xl font-black tracking-tight leading-none mt-1 truncate",
-              children: view === "dashboard" ? "Dashboard" : view === "settings" ? "Settings" : draft.type
-            }, void 0, false)]
-          }, void 0, true)]
-        }, void 0, true), view === "workouts" && /*#__PURE__*/_jsxDEV("div", {
-          className: "text-right shrink-0",
-          children: [/*#__PURE__*/_jsxDEV("div", {
-            className: "text-3xl font-black tabular-nums text-amber-400 leading-none",
-            children: [doneSets, /*#__PURE__*/_jsxDEV("span", {
-              className: "text-zinc-600 text-lg",
-              children: ["/", totalSets]
-            }, void 0, true)]
-          }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-            className: "text-[10px] uppercase tracking-widest text-zinc-500",
-            children: "sets logged"
-          }, void 0, false)]
-        }, void 0, true)]
-      }, void 0, true), menuOpen && /*#__PURE__*/_jsxDEV("div", {
-        className: "fixed inset-0 z-50",
-        onClick: () => setMenuOpen(false),
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          className: "absolute inset-0 bg-black/60"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-          className: "absolute top-0 left-0 h-full w-64 max-w-[80%] bg-zinc-900 border-r border-zinc-800 p-4 flex flex-col",
-          onClick: e => e.stopPropagation(),
-          style: {
-            paddingTop: "max(1rem, env(safe-area-inset-top))"
-          },
-          children: [/*#__PURE__*/_jsxDEV("div", {
-            className: "flex items-center justify-between mb-5",
-            children: [/*#__PURE__*/_jsxDEV("span", {
-              className: "text-amber-400 font-bold tracking-[0.2em] text-xs uppercase",
-              children: "Toast · Strength"
-            }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-              onClick: () => setMenuOpen(false),
-              "aria-label": "Close menu",
-              className: "text-zinc-500 text-xl leading-none px-1",
-              children: "✕"
-            }, void 0, false)]
-          }, void 0, true), [{
-            key: "dashboard",
-            label: "Dashboard",
-            icon: "📊"
-          }, {
-            key: "workouts",
-            label: "Workouts",
-            icon: "🏋"
-          }, {
-            key: "settings",
-            label: "Settings",
-            icon: "⚙"
-          }].map(item => /*#__PURE__*/_jsxDEV("button", {
-            onClick: () => go(item.key),
-            className: `flex items-center gap-3 w-full text-left px-3 py-3 rounded-lg mb-1 text-[15px] font-semibold ${view === item.key ? "bg-amber-400/10 text-amber-400 border border-amber-400/40" : "text-zinc-300 border border-transparent"}`,
-            children: [/*#__PURE__*/_jsxDEV("span", {
-              className: "text-lg w-6 text-center",
-              children: item.icon
-            }, void 0, false), item.label]
-          }, item.key, true))]
-        }, void 0, true)]
-      }, void 0, true), view === "settings" && /*#__PURE__*/_jsxDEV("div", {
-        className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3 mb-4",
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          className: "flex items-center justify-between mb-2",
-          children: [/*#__PURE__*/_jsxDEV("span", {
-            className: "text-[10px] uppercase tracking-widest text-zinc-500",
-            children: "Settings & Sync"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-            className: `text-[10px] font-bold ${cfg.url ? pendingCount ? "text-amber-400" : "text-emerald-400" : "text-zinc-600"}`,
-            children: cfg.url ? pendingCount ? `${pendingCount} pending` : "All synced ✓" : "Sheet not connected"
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("input", {
-          placeholder: "Google Apps Script Web app URL",
-          value: cfg.url,
-          onChange: e => saveCfg({
-            ...cfg,
-            url: e.target.value
-          }),
-          className: "w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none mb-2"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("input", {
-          placeholder: "Token (must match Code.gs)",
-          value: cfg.token,
-          onChange: e => saveCfg({
-            ...cfg,
-            token: e.target.value
-          }),
-          className: "w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-          onClick: resyncAll,
-          className: "w-full mt-2 bg-amber-400 text-zinc-950 rounded-md py-2 text-xs font-bold",
-          children: "Sync pending to Sheet"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-          className: "border-t border-zinc-800 mt-3 pt-3 flex gap-2",
-          children: [/*#__PURE__*/_jsxDEV("button", {
-            onClick: copyLast,
-            className: "flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold",
-            children: "Copy last"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: exportCSV,
-            disabled: !sessions.length,
-            className: "flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold disabled:opacity-40",
-            children: "Export CSV"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: exportJSON,
-            disabled: !sessions.length,
-            className: "flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold disabled:opacity-40",
-            children: "Backup"
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("button", {
-          onClick: () => setShowRestore(v => !v),
-          className: "w-full mt-2 text-[11px] text-zinc-500 font-semibold",
-          children: showRestore ? "Hide restore" : "Restore from backup"
-        }, void 0, false), showRestore && /*#__PURE__*/_jsxDEV("div", {
-          className: "mt-1",
-          children: [/*#__PURE__*/_jsxDEV("textarea", {
-            rows: 3,
-            value: restoreText,
-            onChange: e => setRestoreText(e.target.value),
-            placeholder: "Paste a JSON backup…",
-            className: "w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none resize-none"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: doRestore,
-            className: "w-full mt-1 bg-zinc-800 text-zinc-100 rounded-md py-2 text-xs font-bold",
-            children: "Load backup (replaces current)"
-          }, void 0, false)]
-        }, void 0, true)]
-      }, void 0, true), view === "dashboard" && /*#__PURE__*/_jsxDEV("div", {
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          className: "flex items-center justify-between mb-3",
-          children: [/*#__PURE__*/_jsxDEV("span", {
-            className: "text-[10px] uppercase tracking-widest text-zinc-500",
-            children: "From your Sheet"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: loadDashboard,
-            className: "text-xs text-amber-400 font-semibold",
-            children: dashLoading ? "Loading…" : "Refresh"
-          }, void 0, false)]
-        }, void 0, true), dashError && /*#__PURE__*/_jsxDEV("div", {
-          className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-400",
-          children: dashError
-        }, void 0, false), !dashError && dashLoading && !dashSessions && /*#__PURE__*/_jsxDEV("div", {
-          className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center text-sm text-zinc-500",
-          children: "Loading your training history…"
-        }, void 0, false), !dashError && dashSessions && /*#__PURE__*/_jsxDEV(Dashboard, {
-          sessions: dashSessions
-        }, void 0, false)]
-      }, void 0, true), view === "workouts" && /*#__PURE__*/_jsxDEV(_Fragment, {
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          className: "flex gap-2 mb-4",
-          children: Object.entries(TEMPLATES).map(([k, t]) => /*#__PURE__*/_jsxDEV("button", {
-            onClick: () => swapTemplate(k),
-            className: `flex-1 text-xs font-semibold px-2 py-2 rounded-lg border ${templateKey === k ? "border-amber-400 text-amber-400 bg-amber-400/10" : "border-zinc-800 text-zinc-400"}`,
-            children: t.label
-          }, k, false))
-        }, void 0, false), /*#__PURE__*/_jsxDEV("label", {
-          className: "block mb-4",
-          children: [/*#__PURE__*/_jsxDEV("span", {
-            className: "text-[10px] uppercase tracking-widest text-zinc-500",
-            children: "Date"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("input", {
-            type: "date",
-            value: draft.date,
-            onChange: e => setField("date", e.target.value),
-            className: "block mt-1 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-zinc-100 tabular-nums",
-            style: {
-              width: "auto",
-              maxWidth: "100%"
-            }
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          className: "space-y-3",
-          children: draft.exercises.map(ex => {
-            const last = lastTimeFor(ex.name);
-            return /*#__PURE__*/_jsxDEV("div", {
-              className: "bg-zinc-900 rounded-xl border border-zinc-800 p-3",
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                className: "flex items-start justify-between gap-2",
-                children: [/*#__PURE__*/_jsxDEV("div", {
-                  className: "min-w-0 flex-1",
-                  children: [/*#__PURE__*/_jsxDEV("input", {
-                    value: ex.name,
-                    onChange: e => renameExercise(ex.id, e.target.value),
-                    className: "w-full bg-transparent font-bold text-[15px] text-zinc-100 outline-none"
-                  }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-                    className: "text-[11px] text-zinc-500 mt-0.5",
-                    children: [ex.target && /*#__PURE__*/_jsxDEV("span", {
-                      className: "text-zinc-400",
-                      children: ex.target
-                    }, void 0, false), last && /*#__PURE__*/_jsxDEV("span", {
-                      className: "text-amber-400/80",
-                      children: [ex.target ? "  ·  " : "", "Last: ", last]
-                    }, void 0, true)]
-                  }, void 0, true)]
-                }, void 0, true), /*#__PURE__*/_jsxDEV("button", {
-                  onClick: () => removeExercise(ex.id),
-                  className: "text-zinc-600 text-xs px-1 shrink-0",
-                  children: "✕"
-                }, void 0, false)]
-              }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-                className: "mt-2 space-y-1.5",
-                children: ex.sets.map((s, i) => {
-                  const key = `${ex.id}:${i}`;
-                  const noteOpen = openNotes.has(key) || s.note && s.note.length > 0;
-                  return /*#__PURE__*/_jsxDEV("div", {
-                    children: [/*#__PURE__*/_jsxDEV("div", {
-                      className: "flex items-center gap-2",
-                      children: [/*#__PURE__*/_jsxDEV("span", {
-                        className: "w-5 text-center text-xs font-bold text-zinc-600 tabular-nums",
-                        children: i + 1
-                      }, void 0, false), /*#__PURE__*/_jsxDEV("input", {
-                        inputMode: "decimal",
-                        placeholder: "wt / BW",
-                        value: s.weight,
-                        onChange: e => setSet(ex.id, i, "weight", e.target.value),
-                        className: "flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-2 text-sm text-zinc-100 text-center tabular-nums outline-none"
-                      }, void 0, false), /*#__PURE__*/_jsxDEV("span", {
-                        className: "text-zinc-600 text-sm",
-                        children: "×"
-                      }, void 0, false), /*#__PURE__*/_jsxDEV("input", {
-                        inputMode: "numeric",
-                        placeholder: "reps",
-                        value: s.reps,
-                        onChange: e => setSet(ex.id, i, "reps", e.target.value),
-                        className: "flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-2 text-sm text-zinc-100 text-center tabular-nums outline-none"
-                      }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-                        onClick: () => toggleNote(key),
-                        className: "shrink-0 w-7 text-base leading-none",
-                        style: {
-                          color: s.note ? "#fbbf24" : "#52525b"
-                        },
-                        children: "✎"
-                      }, void 0, false)]
-                    }, void 0, true), noteOpen && /*#__PURE__*/_jsxDEV("input", {
-                      placeholder: "What happened on this set — heavy, dropped weight, form…",
-                      value: s.note || "",
-                      onChange: e => setSet(ex.id, i, "note", e.target.value),
-                      className: "mt-1 ml-7 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none",
-                      style: {
-                        width: "calc(100% - 1.75rem)"
-                      }
-                    }, void 0, false)]
-                  }, i, true);
-                })
-              }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-                className: "flex gap-3 mt-2",
-                children: [/*#__PURE__*/_jsxDEV("button", {
-                  onClick: () => addSet(ex.id),
-                  className: "text-xs text-amber-400 font-semibold",
-                  children: "+ set"
-                }, void 0, false), ex.sets.length > 1 && /*#__PURE__*/_jsxDEV("button", {
-                  onClick: () => removeSet(ex.id),
-                  className: "text-xs text-zinc-500",
-                  children: "− set"
-                }, void 0, false)]
-              }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-                className: "mt-3 pt-3 border-t border-zinc-800",
-                children: [/*#__PURE__*/_jsxDEV("div", {
-                  className: "flex items-center gap-1.5",
-                  children: [/*#__PURE__*/_jsxDEV("span", {
-                    className: "text-[10px] uppercase tracking-widest text-zinc-600 mr-1",
-                    children: "Felt"
-                  }, void 0, false), [1, 2, 3, 4, 5].map(v => /*#__PURE__*/_jsxDEV("button", {
-                    onClick: () => setExField(ex.id, "feel", ex.feel === v ? null : v),
-                    className: `w-6 h-6 rounded-full text-[11px] font-bold border ${ex.feel === v ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-950 text-zinc-500 border-zinc-800"}`,
-                    children: v
-                  }, v, false))]
-                }, void 0, true), /*#__PURE__*/_jsxDEV("input", {
-                  placeholder: "Exercise note — how the movement went overall…",
-                  value: ex.note,
-                  onChange: e => setExField(ex.id, "note", e.target.value),
-                  className: "w-full mt-2 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none"
-                }, void 0, false)]
-              }, void 0, true)]
-            }, ex.id, true);
-          })
-        }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-          onClick: addExercise,
-          className: "w-full mt-3 border border-dashed border-zinc-800 rounded-xl py-2.5 text-sm text-zinc-400 font-semibold",
-          children: "+ Add movement"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-          className: "mt-5",
-          children: [/*#__PURE__*/_jsxDEV("span", {
-            className: "text-[10px] uppercase tracking-widest text-zinc-500",
-            children: "Finisher"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-            className: "mt-1.5",
-            children: /*#__PURE__*/_jsxDEV(Finisher, {
-              value: draft.finisher,
-              onChange: r => setField("finisher", r),
-              onReset: () => setField("finisher", null)
-            }, void 0, false)
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          className: "mt-6 pt-5 border-t border-zinc-800",
-          children: [/*#__PURE__*/_jsxDEV("span", {
-            className: "text-[10px] uppercase tracking-widest text-zinc-500",
-            children: "Overall session"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-            className: "flex gap-1.5 mt-1.5",
-            children: FEELS.map(f => /*#__PURE__*/_jsxDEV("button", {
-              onClick: () => setField("feel", f.v),
-              className: `flex-1 py-2 rounded-md text-xs font-semibold border ${Number(draft.feel) === f.v ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-900 text-zinc-400 border-zinc-800"}`,
-              children: [/*#__PURE__*/_jsxDEV("div", {
-                className: "text-sm font-black",
-                children: f.v
-              }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-                className: "text-[9px] uppercase tracking-wide",
-                children: f.label
-              }, void 0, false)]
-            }, f.v, true))
-          }, void 0, false), /*#__PURE__*/_jsxDEV("textarea", {
-            rows: 2,
-            placeholder: "Session notes — sleep, footy fatigue, time crunch…",
-            value: draft.notes,
-            onChange: e => setField("notes", e.target.value),
-            className: "w-full mt-3 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 outline-none resize-none"
-          }, void 0, false)]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("button", {
-          onClick: requestSave,
-          className: "w-full mt-6 bg-amber-400 text-zinc-950 font-black rounded-xl py-3.5 text-base tracking-wide",
-          children: "Save session"
-        }, void 0, false)]
-      }, void 0, true)]
-    }, void 0, true), confirmOpen && /*#__PURE__*/_jsxDEV("div", {
-      className: "fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-6",
-      children: /*#__PURE__*/_jsxDEV("div", {
-        className: "bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-xs text-center",
-        children: [/*#__PURE__*/_jsxDEV("div", {
-          className: "text-lg font-black text-zinc-100",
-          children: "Save this session?"
-        }, void 0, false), /*#__PURE__*/_jsxDEV("div", {
-          className: "text-sm text-zinc-400 mt-1",
-          children: [draft.type, " · ", draft.date]
-        }, void 0, true), /*#__PURE__*/_jsxDEV("div", {
-          className: "flex gap-2 mt-5",
-          children: [/*#__PURE__*/_jsxDEV("button", {
-            onClick: () => setConfirmOpen(false),
-            className: "flex-1 border border-zinc-700 text-zinc-300 rounded-xl py-3 font-bold",
-            children: "No"
-          }, void 0, false), /*#__PURE__*/_jsxDEV("button", {
-            onClick: doSave,
-            className: "flex-1 bg-amber-400 text-zinc-950 rounded-xl py-3 font-black",
-            children: "Yes, save"
-          }, void 0, false)]
-        }, void 0, true)]
-      }, void 0, true)
-    }, void 0, false), toast && /*#__PURE__*/_jsxDEV("div", {
-      className: "fixed bottom-8 inset-x-0 flex justify-center px-4 pointer-events-none z-40",
-      children: /*#__PURE__*/_jsxDEV("div", {
-        className: "bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm rounded-full px-4 py-2 shadow-lg text-center max-w-xs",
-        children: toast
-      }, void 0, false)
-    }, void 0, false)]
-  }, void 0, true);
+    }
+  }, /*#__PURE__*/React.createElement("style", null, `input, textarea, select { font-size:16px; } input[type="date"]{ -webkit-appearance:none; appearance:none; }`), /*#__PURE__*/React.createElement("div", {
+    className: "max-w-md mx-auto px-4 pb-10 pt-5",
+    style: {
+      paddingTop: "max(1.25rem, env(safe-area-inset-top))",
+      paddingBottom: "max(2.5rem, env(safe-area-inset-bottom))"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-start justify-between mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-start gap-3 min-w-0"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setMenuOpen(true),
+    "aria-label": "Menu",
+    className: "w-9 h-9 shrink-0 rounded-lg border border-zinc-800 text-zinc-300 flex flex-col items-center justify-center gap-[3px]"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "block w-4 h-0.5 bg-current rounded"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "block w-4 h-0.5 bg-current rounded"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "block w-4 h-0.5 bg-current rounded"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "min-w-0"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-amber-400 font-bold tracking-[0.2em] text-xs uppercase"
+  }, "Toast Performance System"), /*#__PURE__*/React.createElement("div", {
+    className: "text-2xl font-black tracking-tight leading-none mt-1 truncate"
+  }, view === "dashboard" ? "Dashboard" : view === "settings" ? "Settings" : "Workouts")))), menuOpen && /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-50",
+    onClick: () => setMenuOpen(false)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "absolute inset-0 bg-black/60"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "absolute top-0 left-0 h-full w-64 max-w-[80%] bg-zinc-900 border-r border-zinc-800 p-4 flex flex-col",
+    onClick: e => e.stopPropagation(),
+    style: {
+      paddingTop: "max(1rem, env(safe-area-inset-top))"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-5"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-amber-400 font-bold tracking-[0.2em] text-xs uppercase"
+  }, "Toast Performance System"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setMenuOpen(false),
+    "aria-label": "Close menu",
+    className: "text-zinc-500 text-xl leading-none px-1"
+  }, "✕")), [{
+    key: "dashboard",
+    label: "Dashboard"
+  }, {
+    key: "workouts",
+    label: "Workouts"
+  }, {
+    key: "settings",
+    label: "Settings"
+  }].map(item => /*#__PURE__*/React.createElement("button", {
+    key: item.key,
+    onClick: () => go(item.key),
+    className: `block w-full text-left px-3 py-3 rounded-lg mb-1 text-[15px] font-semibold ${view === item.key ? "bg-amber-400/10 text-amber-400 border border-amber-400/40" : "text-zinc-300 border border-transparent"}`
+  }, item.label)))), view === "settings" && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3 mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Settings & Sync"), /*#__PURE__*/React.createElement("span", {
+    className: `text-[10px] font-bold ${cfg.url ? pendingCount ? "text-amber-400" : "text-emerald-400" : "text-zinc-600"}`
+  }, cfg.url ? pendingCount ? `${pendingCount} pending` : "All synced ✓" : "Sheet not connected")), /*#__PURE__*/React.createElement("input", {
+    placeholder: "Google Apps Script Web app URL",
+    value: cfg.url,
+    onChange: e => saveCfg({
+      ...cfg,
+      url: e.target.value
+    }),
+    className: "w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none mb-2"
+  }), /*#__PURE__*/React.createElement("input", {
+    placeholder: "Token (must match Code.gs)",
+    value: cfg.token,
+    onChange: e => saveCfg({
+      ...cfg,
+      token: e.target.value
+    }),
+    className: "w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none"
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: resyncAll,
+    className: "w-full mt-2 bg-amber-400 text-zinc-950 rounded-md py-2 text-xs font-bold"
+  }, "Sync pending to Sheet"), /*#__PURE__*/React.createElement("div", {
+    className: "border-t border-zinc-800 mt-3 pt-3 flex gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: copyLast,
+    className: "flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold"
+  }, "Copy last"), /*#__PURE__*/React.createElement("button", {
+    onClick: exportCSV,
+    disabled: !sessions.length,
+    className: "flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold disabled:opacity-40"
+  }, "Export CSV"), /*#__PURE__*/React.createElement("button", {
+    onClick: exportJSON,
+    disabled: !sessions.length,
+    className: "flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold disabled:opacity-40"
+  }, "Backup")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowRestore(v => !v),
+    className: "w-full mt-2 text-[11px] text-zinc-500 font-semibold"
+  }, showRestore ? "Hide restore" : "Restore from backup"), showRestore && /*#__PURE__*/React.createElement("div", {
+    className: "mt-1"
+  }, /*#__PURE__*/React.createElement("textarea", {
+    rows: 3,
+    value: restoreText,
+    onChange: e => setRestoreText(e.target.value),
+    placeholder: "Paste a JSON backup…",
+    className: "w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none resize-none"
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: doRestore,
+    className: "w-full mt-1 bg-zinc-800 text-zinc-100 rounded-md py-2 text-xs font-bold"
+  }, "Load backup (replaces current)"))), view === "dashboard" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-3"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "From your Sheet"), /*#__PURE__*/React.createElement("button", {
+    onClick: loadDashboard,
+    className: "text-xs text-amber-400 font-semibold"
+  }, dashLoading ? "Loading…" : "Refresh")), dashError && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-400"
+  }, dashError), !dashError && dashLoading && !dashSessions && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center text-sm text-zinc-500"
+  }, "Loading your training history…"), !dashError && dashSessions && /*#__PURE__*/React.createElement(Dashboard, {
+    sessions: dashSessions
+  })), view === "workouts" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 mb-4 items-end"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "block flex-1 min-w-0"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Workout"), /*#__PURE__*/React.createElement("div", {
+    className: "relative mt-1"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: templateKey,
+    onChange: e => swapTemplate(e.target.value),
+    className: "w-full bg-zinc-900 border border-zinc-800 rounded-md pl-3 pr-8 py-2.5 text-zinc-100 font-semibold outline-none appearance-none truncate"
+  }, Object.entries(TEMPLATES).map(([k, t]) => /*#__PURE__*/React.createElement("option", {
+    key: k,
+    value: k
+  }, t.label))), /*#__PURE__*/React.createElement("span", {
+    className: "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500"
+  }, "▾"))), /*#__PURE__*/React.createElement("label", {
+    className: "block shrink-0"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Date"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: draft.date,
+    onChange: e => setField("date", e.target.value),
+    className: "block mt-1 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2.5 text-zinc-100 tabular-nums"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-3"
+  }, draft.exercises.map(ex => {
+    const last = lastTimeFor(ex.name);
+    return /*#__PURE__*/React.createElement("div", {
+      key: ex.id,
+      className: "bg-zinc-900 rounded-xl border border-zinc-800 p-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-start justify-between gap-2"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "min-w-0 flex-1"
+    }, /*#__PURE__*/React.createElement("input", {
+      value: ex.name,
+      onChange: e => renameExercise(ex.id, e.target.value),
+      className: "w-full bg-transparent font-bold text-[15px] text-zinc-100 outline-none"
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "text-[11px] text-zinc-500 mt-0.5"
+    }, ex.target && /*#__PURE__*/React.createElement("span", {
+      className: "text-zinc-400"
+    }, ex.target), last && /*#__PURE__*/React.createElement("span", {
+      className: "text-amber-400/80"
+    }, ex.target ? "  ·  " : "", "Last: ", last))), /*#__PURE__*/React.createElement("button", {
+      onClick: () => removeExercise(ex.id),
+      className: "text-zinc-600 text-xs px-1 shrink-0"
+    }, "✕")), /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 space-y-1.5"
+    }, ex.sets.map((s, i) => {
+      const key = `${ex.id}:${i}`;
+      const noteOpen = openNotes.has(key) || s.note && s.note.length > 0;
+      return /*#__PURE__*/React.createElement("div", {
+        key: i
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-2"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "w-5 text-center text-xs font-bold text-zinc-600 tabular-nums"
+      }, i + 1), /*#__PURE__*/React.createElement("input", {
+        inputMode: "text",
+        placeholder: "weight",
+        value: s.weight,
+        onChange: e => setSet(ex.id, i, "weight", e.target.value),
+        className: "flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-2 text-sm text-zinc-100 text-center tabular-nums outline-none"
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "text-zinc-600 text-sm"
+      }, "×"), /*#__PURE__*/React.createElement("input", {
+        inputMode: "text",
+        placeholder: "reps",
+        value: s.reps,
+        onChange: e => setSet(ex.id, i, "reps", e.target.value),
+        className: "flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-2 text-sm text-zinc-100 text-center tabular-nums outline-none"
+      }), /*#__PURE__*/React.createElement("button", {
+        onClick: () => toggleNote(key),
+        className: "shrink-0 w-7 text-base leading-none",
+        style: {
+          color: s.note ? "#fbbf24" : "#52525b"
+        }
+      }, "✎")), noteOpen && /*#__PURE__*/React.createElement("input", {
+        placeholder: "What happened on this set — heavy, dropped weight, form…",
+        value: s.note || "",
+        onChange: e => setSet(ex.id, i, "note", e.target.value),
+        className: "mt-1 ml-7 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none",
+        style: {
+          width: "calc(100% - 1.75rem)"
+        }
+      }));
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "flex gap-3 mt-2"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => addSet(ex.id),
+      className: "text-xs text-amber-400 font-semibold"
+    }, "+ set"), ex.sets.length > 1 && /*#__PURE__*/React.createElement("button", {
+      onClick: () => removeSet(ex.id),
+      className: "text-xs text-zinc-500"
+    }, "− set")), /*#__PURE__*/React.createElement("div", {
+      className: "mt-3 pt-3 border-t border-zinc-800"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-1.5"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] uppercase tracking-widest text-zinc-600 mr-1"
+    }, "Felt"), [1, 2, 3, 4, 5].map(v => /*#__PURE__*/React.createElement("button", {
+      key: v,
+      onClick: () => setExField(ex.id, "feel", ex.feel === v ? null : v),
+      className: `w-6 h-6 rounded-full text-[11px] font-bold border ${ex.feel === v ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-950 text-zinc-500 border-zinc-800"}`
+    }, v))), /*#__PURE__*/React.createElement("input", {
+      placeholder: "Exercise note — how the movement went overall…",
+      value: ex.note,
+      onChange: e => setExField(ex.id, "note", e.target.value),
+      className: "w-full mt-2 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none"
+    })));
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: addExercise,
+    className: "w-full mt-3 border border-dashed border-zinc-800 rounded-xl py-2.5 text-sm text-zinc-400 font-semibold"
+  }, "+ Add movement"), /*#__PURE__*/React.createElement("div", {
+    className: "mt-5"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Finisher"), /*#__PURE__*/React.createElement("div", {
+    className: "mt-1.5"
+  }, /*#__PURE__*/React.createElement(Finisher, {
+    value: draft.finisher,
+    onChange: r => setField("finisher", r),
+    onReset: () => setField("finisher", null)
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-6 pt-5 border-t border-zinc-800"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Overall session"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-1.5 mt-1.5"
+  }, FEELS.map(f => /*#__PURE__*/React.createElement("button", {
+    key: f.v,
+    onClick: () => setField("feel", f.v),
+    className: `flex-1 py-2 rounded-md text-xs font-semibold border ${Number(draft.feel) === f.v ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-900 text-zinc-400 border-zinc-800"}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm font-black"
+  }, f.v), /*#__PURE__*/React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wide"
+  }, f.label)))), /*#__PURE__*/React.createElement("textarea", {
+    rows: 2,
+    placeholder: "Session notes — sleep, footy fatigue, time crunch…",
+    value: draft.notes,
+    onChange: e => setField("notes", e.target.value),
+    className: "w-full mt-3 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 outline-none resize-none"
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: requestSave,
+    className: "w-full mt-6 bg-amber-400 text-zinc-950 font-black rounded-xl py-3.5 text-base tracking-wide"
+  }, "Save session"))), confirmOpen && /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-xs text-center"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-lg font-black text-zinc-100"
+  }, "Save this session?"), /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-zinc-400 mt-1"
+  }, draft.type, " · ", draft.date), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 mt-5"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setConfirmOpen(false),
+    className: "flex-1 border border-zinc-700 text-zinc-300 rounded-xl py-3 font-bold"
+  }, "No"), /*#__PURE__*/React.createElement("button", {
+    onClick: doSave,
+    className: "flex-1 bg-amber-400 text-zinc-950 rounded-xl py-3 font-black"
+  }, "Yes, save")))), toast && /*#__PURE__*/React.createElement("div", {
+    className: "fixed bottom-8 inset-x-0 flex justify-center px-4 pointer-events-none z-40"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm rounded-full px-4 py-2 shadow-lg text-center max-w-xs"
+  }, toast)));
 }
-ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/_jsxDEV(App, {}, void 0, false));
+ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(App, null));
 } catch (err) {
   var r = document.getElementById('root');
-  if (r) r.innerHTML = '<div id="load-error"><b>The app hit a snag loading.</b><br><br>' +
-    (err && err.message ? err.message : 'Unknown error') +
-    '<br><br>Try reloading. If it persists, screenshot this and send it over.</div>';
+  if (r) r.innerHTML = '<div id="load-error"><b>The app hit a snag loading.</b><br><br>' + (err && err.message ? err.message : 'Unknown error') + '<br><br>Try reloading. If it persists, screenshot this and send it over.</div>';
   console.error(err);
 }
 </script>
 <script>
-// Catch async/runtime errors that leave the screen blank and surface them
 window.addEventListener('error', function (e) {
   var r = document.getElementById('root');
   if (r && !r.hasChildNodes()) {
-    r.innerHTML = '<div id="load-error"><b>The app hit a snag loading.</b><br><br>' +
-      (e && e.message ? e.message : 'Unknown error') +
-      '<br><br>Try reloading. If it persists, screenshot this and send it over.</div>';
+    r.innerHTML = '<div id="load-error"><b>The app hit a snag loading.</b><br><br>' + (e && e.message ? e.message : 'Unknown error') + '<br><br>Try reloading. If it persists, screenshot this and send it over.</div>';
   }
 });
 </script>
