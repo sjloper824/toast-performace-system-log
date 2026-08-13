@@ -330,6 +330,8 @@ const {
 
 // ---------- constants ----------
 const STORAGE_KEY = "toast:sessions";
+const DRAFT_KEY = "toast:draft";
+const DRAFTK_KEY = "toast:draftKey";
 const SEED_FLAG = "toast:seeded_v1";
 const CFG_KEY = "toast:cfg";
 const PUSH = "#e8552e";
@@ -663,7 +665,7 @@ function buildDraft(templateKey) {
 async function postToSheet(session, cfg) {
   if (!cfg || !cfg.url) return false;
   try {
-    await fetch(cfg.url, {
+    const res = await fetch(cfg.url, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain;charset=utf-8"
@@ -674,7 +676,8 @@ async function postToSheet(session, cfg) {
       }),
       redirect: "follow"
     });
-    return true;
+    const data = await res.json(); // only count it synced if the Sheet confirms
+    return !!(data && data.ok);
   } catch (e) {
     return false;
   }
@@ -737,6 +740,310 @@ function rowsToSessions(rows) {
     ...s,
     exercises: Object.values(s.exercises)
   }));
+}
+
+// ---------- nutrition ----------
+const FOODS_KEY = "toast:foods";
+const NUT_MACROS = [{
+  key: "cal",
+  label: "Calories",
+  unit: "",
+  light: [2200, 2300],
+  heavy: [2600, 2700]
+}, {
+  key: "p",
+  label: "Protein",
+  unit: "g",
+  light: [150, 165],
+  heavy: [160, 165]
+}, {
+  key: "c",
+  label: "Carbs",
+  unit: "g",
+  light: [180, 220],
+  heavy: [280, 320]
+}, {
+  key: "f",
+  label: "Fat",
+  unit: "g",
+  light: [65, 75],
+  heavy: [65, 75]
+}];
+const SEED_FOODS = [{
+  name: "White rice",
+  amount: 1,
+  unit: "cup",
+  cal: 205,
+  p: 4,
+  c: 45,
+  f: 0,
+  count: 9
+}, {
+  name: "Chicken breast",
+  amount: 6,
+  unit: "oz",
+  cal: 280,
+  p: 53,
+  c: 0,
+  f: 6,
+  count: 8
+}, {
+  name: "Whole eggs",
+  amount: 2,
+  unit: "large",
+  cal: 140,
+  p: 12,
+  c: 1,
+  f: 10,
+  count: 6
+}, {
+  name: "Greek yogurt",
+  amount: 1,
+  unit: "cup",
+  cal: 130,
+  p: 22,
+  c: 8,
+  f: 0,
+  count: 5
+}, {
+  name: "Protein shake",
+  amount: 1,
+  unit: "scoop",
+  cal: 120,
+  p: 25,
+  c: 3,
+  f: 2,
+  count: 5
+}, {
+  name: "Banana",
+  amount: 1,
+  unit: "medium",
+  cal: 105,
+  p: 1,
+  c: 27,
+  f: 0,
+  count: 4
+}, {
+  name: "Sweet potato",
+  amount: 1,
+  unit: "medium",
+  cal: 100,
+  p: 2,
+  c: 24,
+  f: 0,
+  count: 3
+}, {
+  name: "Ground turkey 93%",
+  amount: 6,
+  unit: "oz",
+  cal: 260,
+  p: 40,
+  c: 0,
+  f: 11,
+  count: 3
+}, {
+  name: "Oats",
+  amount: 0.5,
+  unit: "cup dry",
+  cal: 150,
+  p: 5,
+  c: 27,
+  f: 3,
+  count: 2
+}, {
+  name: "Cheddar cheese",
+  amount: 1,
+  unit: "oz",
+  cal: 115,
+  p: 7,
+  c: 0,
+  f: 9,
+  count: 2
+}, {
+  name: "Almonds",
+  amount: 1,
+  unit: "oz",
+  cal: 165,
+  p: 6,
+  c: 6,
+  f: 14,
+  count: 1
+}, {
+  name: "Olive oil",
+  amount: 1,
+  unit: "tbsp",
+  cal: 120,
+  p: 0,
+  c: 0,
+  f: 14,
+  count: 1
+}];
+const r0 = n => Math.round(n);
+const fmtAmt = n => Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+const stepFor = u => u && u.indexOf("cup") === 0 || u === "cup dry" ? 0.25 : 1;
+const Z_BLUE = "rgba(56,189,248,0.45)",
+  Z_BLUE_DOT = "rgba(56,189,248,0.9)",
+  Z_AMBER = "rgba(251,191,36,0.45)",
+  Z_AMBER_DOT = "rgba(251,191,36,0.95)";
+function MacroBar({
+  label,
+  unit,
+  consumed,
+  light,
+  heavy
+}) {
+  const hi = Math.max(heavy[1], light[1], consumed) * 1.08;
+  const pos = v => v / hi * 100;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "mb-3.5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-baseline justify-between mb-1"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] uppercase tracking-widest text-zinc-400"
+  }, label), /*#__PURE__*/React.createElement("span", {
+    className: "text-sm font-bold tabular-nums text-zinc-100"
+  }, r0(consumed), /*#__PURE__*/React.createElement("span", {
+    className: "text-zinc-600 text-xs font-normal"
+  }, unit))), /*#__PURE__*/React.createElement("div", {
+    className: "relative h-3 bg-zinc-800 rounded-full overflow-hidden"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "absolute top-0 bottom-0 left-0",
+    style: {
+      width: pos(consumed) + "%",
+      background: "rgba(161,161,170,0.22)"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "absolute top-0 bottom-0",
+    style: {
+      left: pos(light[0]) + "%",
+      width: pos(light[1]) - pos(light[0]) + "%",
+      background: Z_BLUE
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "absolute top-0 bottom-0",
+    style: {
+      left: pos(heavy[0]) + "%",
+      width: pos(heavy[1]) - pos(heavy[0]) + "%",
+      background: Z_AMBER
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "absolute top-0 bottom-0 w-[2px] bg-zinc-100",
+    style: {
+      left: "calc(" + pos(consumed) + "% - 1px)"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-3 mt-1 text-[10px] tabular-nums text-zinc-500"
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+    className: "inline-block w-2 h-2 rounded-sm align-middle mr-1",
+    style: {
+      background: Z_BLUE_DOT
+    }
+  }), "light ", light[0], "–", light[1], unit), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+    className: "inline-block w-2 h-2 rounded-sm align-middle mr-1",
+    style: {
+      background: Z_AMBER_DOT
+    }
+  }), "heavy ", heavy[0], "–", heavy[1], unit)));
+}
+
+// nutrition network helpers (no-op / fallback when no Sheet is configured, so preview works)
+async function fetchMeals(cfg, date) {
+  if (!cfg.url) return [];
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}tab=nutrition&date=${encodeURIComponent(date)}&token=${encodeURIComponent(cfg.token || "")}`;
+  const d = await (await fetch(url, {
+    method: "GET"
+  })).json();
+  if (!d.ok) return [];
+  return (d.rows || []).map(r => ({
+    id: r.meal_id,
+    name: r.name,
+    amount: Number(r.amount) || 1,
+    unit: r.unit || "serving",
+    cal: Number(r.cal) || 0,
+    p: Number(r.protein) || 0,
+    c: Number(r.carbs) || 0,
+    f: Number(r.fat) || 0,
+    est: false
+  }));
+}
+async function fetchWeights(cfg) {
+  if (!cfg.url) return [];
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}tab=weight&token=${encodeURIComponent(cfg.token || "")}`;
+  const d = await (await fetch(url, {
+    method: "GET"
+  })).json();
+  if (!d.ok) return [];
+  return (d.rows || []).map(r => ({
+    date: r.date,
+    lb: Number(r.lb) || 0
+  })).filter(w => w.lb > 0);
+}
+function postMeal(cfg, meal) {
+  if (!cfg.url) return;
+  try {
+    fetch(cfg.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify({
+        token: cfg.token || "",
+        meal
+      }),
+      redirect: "follow"
+    });
+  } catch (e) {}
+}
+function deleteMealRemote(cfg, id) {
+  if (!cfg.url) return;
+  try {
+    fetch(cfg.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify({
+        token: cfg.token || "",
+        deleteMeal: {
+          id
+        }
+      }),
+      redirect: "follow"
+    });
+  } catch (e) {}
+}
+function postWeight(cfg, w) {
+  if (!cfg.url) return;
+  try {
+    fetch(cfg.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify({
+        token: cfg.token || "",
+        weight: w
+      }),
+      redirect: "follow"
+    });
+  } catch (e) {}
+}
+async function estimateMealRemote(cfg, text) {
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}action=estimate&token=${encodeURIComponent(cfg.token || "")}&meal=${encodeURIComponent(text)}`;
+  const d = await (await fetch(url, {
+    method: "GET"
+  })).json();
+  if (!d.ok || !d.estimate) throw new Error(d.error || "Couldn't estimate that meal.");
+  const e = d.estimate;
+  return {
+    name: e.name || text,
+    amount: Number(e.amount) || 1,
+    unit: e.unit || "serving",
+    cal: Number(e.cal) || 0,
+    p: Number(e.p) || 0,
+    c: Number(e.c) || 0,
+    f: Number(e.f) || 0
+  };
 }
 
 // ---------- export helpers ----------
@@ -1048,6 +1355,62 @@ function Finisher({
   }, "Progress is saved live — Finish or just Save the session."));
 }
 
+// ---------- Weight trend (daily dots + 7-day moving average) ----------
+function WeightTrend({
+  weights
+}) {
+  if (!weights || weights.length < 2) return null;
+  const s = [...weights].sort((a, b) => a.date < b.date ? -1 : 1).slice(-30);
+  const ma = s.map((_, i) => {
+    const w = s.slice(Math.max(0, i - 6), i + 1);
+    return w.reduce((x, y) => x + y.lb, 0) / w.length;
+  });
+  const vals = s.map(p => p.lb).concat(ma);
+  const min = Math.min(...vals),
+    max = Math.max(...vals);
+  const pad = (max - min) * 0.2 || 1,
+    lo = min - pad,
+    hi = max + pad;
+  const W = 320,
+    H = 90;
+  const x = i => s.length > 1 ? i / (s.length - 1) * W : 0;
+  const y = v => H - (v - lo) / (hi - lo) * H;
+  const maPath = ma.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const latest = s[s.length - 1].lb,
+    delta = latest - s[0].lb;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3 mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Weight trend"), /*#__PURE__*/React.createElement("span", {
+    className: "text-xs tabular-nums text-zinc-300"
+  }, latest.toFixed(1), " lb ", /*#__PURE__*/React.createElement("span", {
+    className: delta <= 0 ? "text-emerald-400" : "text-orange-400"
+  }, delta <= 0 ? "▼" : "▲", Math.abs(delta).toFixed(1)))), /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    preserveAspectRatio: "none",
+    className: "w-full",
+    style: {
+      height: "90px"
+    }
+  }, /*#__PURE__*/React.createElement("path", {
+    d: maPath,
+    fill: "none",
+    stroke: "#fbbf24",
+    strokeWidth: "2"
+  }), s.map((p, i) => /*#__PURE__*/React.createElement("circle", {
+    key: i,
+    cx: x(i),
+    cy: y(p.lb),
+    r: "1.8",
+    fill: "#71717a"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-zinc-600 mt-1"
+  }, "Dots = daily weigh-ins · amber line = 7-day trend"));
+}
+
 // ---------- Dashboard ----------
 function Dashboard({
   sessions
@@ -1216,14 +1579,15 @@ function initSessions() {
 }
 function App() {
   const [sessions, setSessions] = useState(initSessions);
-  const [templateKey, setTemplateKey] = useState("lower");
-  const [draft, setDraft] = useState(() => buildDraft("lower"));
+  const [templateKey, setTemplateKey] = useState(() => LS.get(DRAFTK_KEY) || "lower");
+  const [draft, setDraft] = useState(() => LS.get(DRAFT_KEY) || buildDraft(LS.get(DRAFTK_KEY) || "lower"));
   const [toast, setToast] = useState("");
   const [openNotes, setOpenNotes] = useState(() => new Set());
   const [view, setView] = useState("workouts"); // "workouts" | "dashboard" | "settings"
   const [menuOpen, setMenuOpen] = useState(false);
   const [dashSessions, setDashSessions] = useState(null);
   const [dashRecap, setDashRecap] = useState(null);
+  const [dashWeights, setDashWeights] = useState(null);
   const [dashLoading, setDashLoading] = useState(false);
   const [dashError, setDashError] = useState("");
   const [recLoading, setRecLoading] = useState(false);
@@ -1234,10 +1598,27 @@ function App() {
     token: ""
   });
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // nutrition
+  const [foods, setFoods] = useState(() => LS.get(FOODS_KEY) || SEED_FOODS);
+  const [mealLog, setMealLog] = useState([]);
+  const [mealText, setMealText] = useState("");
+  const [estLoading, setEstLoading] = useState(false);
+  const [mEditId, setMEditId] = useState(null);
+  const [mEditAmt, setMEditAmt] = useState("");
+  const [weights, setWeights] = useState([]);
+  const [wInput, setWInput] = useState("");
+  const [nutLoaded, setNutLoaded] = useState(false);
   const flash = m => {
     setToast(m);
     setTimeout(() => setToast(""), 2600);
   };
+  // auto-save the in-progress workout so it survives a refresh/close (no more lost sessions)
+  useEffect(() => {
+    LS.set(DRAFT_KEY, draft);
+  }, [draft]);
+  useEffect(() => {
+    LS.set(DRAFTK_KEY, templateKey);
+  }, [templateKey]);
   const persist = next => {
     setSessions(next);
     LS.set(STORAGE_KEY, next);
@@ -1334,6 +1715,193 @@ function App() {
     n.has(key) ? n.delete(key) : n.add(key);
     return n;
   });
+
+  // ----- nutrition handlers -----
+  const saveFoods = fs => {
+    setFoods(fs);
+    LS.set(FOODS_KEY, fs);
+  };
+  const loadNutrition = async () => {
+    if (!cfg.url) {
+      setNutLoaded(true);
+      return;
+    }
+    try {
+      const [meals, ws] = await Promise.all([fetchMeals(cfg, today()).catch(() => []), fetchWeights(cfg).catch(() => [])]);
+      setMealLog(meals);
+      setWeights(ws);
+    } catch (e) {}
+    setNutLoaded(true);
+  };
+  const mealTotals = mealLog.reduce((a, e) => ({
+    cal: a.cal + e.cal,
+    p: a.p + e.p,
+    c: a.c + e.c,
+    f: a.f + e.f
+  }), {
+    cal: 0,
+    p: 0,
+    c: 0,
+    f: 0
+  });
+  const sortedFoods = [...foods].sort((a, b) => (b.count || 0) - (a.count || 0));
+  const pushMeal = e => postMeal(cfg, {
+    id: e.id,
+    date: e.date,
+    name: e.name,
+    amount: e.amount,
+    unit: e.unit,
+    cal: e.cal,
+    p: e.p,
+    c: e.c,
+    f: e.f
+  });
+  const addFood = food => {
+    const entry = {
+      id: uid(),
+      date: today(),
+      name: food.name,
+      unit: food.unit,
+      baseAmount: food.amount,
+      bcal: food.cal,
+      bp: food.p,
+      bc: food.c,
+      bf: food.f,
+      amount: food.amount,
+      cal: food.cal,
+      p: food.p,
+      c: food.c,
+      f: food.f,
+      est: false
+    };
+    setMealLog(l => [entry, ...l]);
+    saveFoods(foods.map(f => f.name === food.name ? {
+      ...f,
+      count: (f.count || 0) + 1
+    } : f));
+    pushMeal(entry);
+  };
+  const logMeal = async () => {
+    const text = mealText.trim();
+    if (!text) return;
+    setEstLoading(true);
+    try {
+      const est = cfg.url ? await estimateMealRemote(cfg, text) : {
+        name: text,
+        amount: 1,
+        unit: "serving",
+        cal: 480,
+        p: 32,
+        c: 55,
+        f: 14
+      };
+      const nm = est.name || text;
+      const entry = {
+        id: uid(),
+        date: today(),
+        name: nm,
+        unit: est.unit || "serving",
+        baseAmount: est.amount || 1,
+        bcal: est.cal,
+        bp: est.p,
+        bc: est.c,
+        bf: est.f,
+        amount: est.amount || 1,
+        cal: est.cal,
+        p: est.p,
+        c: est.c,
+        f: est.f,
+        est: true
+      };
+      setMealLog(l => [entry, ...l]);
+      saveFoods(foods.some(f => f.name.toLowerCase() === nm.toLowerCase()) ? foods.map(f => f.name.toLowerCase() === nm.toLowerCase() ? {
+        ...f,
+        count: (f.count || 0) + 1
+      } : f) : [...foods, {
+        name: nm,
+        amount: est.amount || 1,
+        unit: est.unit || "serving",
+        cal: est.cal,
+        p: est.p,
+        c: est.c,
+        f: est.f,
+        count: 1
+      }]);
+      pushMeal(entry);
+      setMealText("");
+    } catch (err) {
+      flash("Couldn't estimate: " + err.message);
+    } finally {
+      setEstLoading(false);
+    }
+  };
+  const applyMealAmount = (id, n) => setMealLog(l => l.map(e => {
+    if (e.id !== id || !(n > 0)) return e;
+    const q = n / e.baseAmount;
+    const ne = {
+      ...e,
+      amount: n,
+      cal: r0(e.bcal * q),
+      p: r0(e.bp * q),
+      c: r0(e.bc * q),
+      f: r0(e.bf * q)
+    };
+    pushMeal(ne);
+    return ne;
+  }));
+  const openMealEdit = e => {
+    setMEditId(e.id);
+    setMEditAmt(String(e.amount));
+  };
+  const onMealAmt = (id, v) => {
+    setMEditAmt(v);
+    const n = parseFloat(v);
+    if (!isNaN(n)) applyMealAmount(id, n);
+  };
+  const bumpMeal = (e, dir) => {
+    const base = parseFloat(mEditAmt);
+    const cur = isNaN(base) ? e.amount : base;
+    const n = Math.max(0, Math.round((cur + dir * stepFor(e.unit)) * 100) / 100);
+    setMEditAmt(String(n));
+    applyMealAmount(e.id, n);
+  };
+  const removeMeal = id => {
+    setMealLog(l => l.filter(e => e.id !== id));
+    deleteMealRemote(cfg, id);
+  };
+  const wtToday = weights.find(w => w.date === today());
+  const wtTrend = (() => {
+    if (!weights.length) return null;
+    const s = [...weights].sort((a, b) => a.date < b.date ? -1 : 1);
+    const w = Math.min(7, Math.max(1, Math.floor(s.length / 2)));
+    const avg = a => a.reduce((x, y) => x + y.lb, 0) / a.length;
+    const recent = s.slice(-w),
+      prior = s.slice(-2 * w, -w);
+    return {
+      rAvg: avg(recent),
+      delta: prior.length ? avg(recent) - avg(prior) : 0
+    };
+  })();
+  const logWeight = () => {
+    const n = parseFloat(wInput);
+    if (!(n > 0)) return;
+    const lb = Math.round(n * 10) / 10;
+    const d = today();
+    setWeights(ws => [...ws.filter(w => w.date !== d), {
+      date: d,
+      lb
+    }]);
+    postWeight(cfg, {
+      date: d,
+      lb
+    });
+    setWInput("");
+  };
+  const editWeightToday = () => {
+    setWInput(String(wtToday.lb));
+    const d = today();
+    setWeights(ws => ws.filter(w => w.date !== d));
+  };
   const requestSave = () => {
     const hasLifts = draft.exercises.some(e => e.sets.some(s => s.weight || s.reps));
     if (!hasLifts && !draft.finisher) {
@@ -1384,6 +1952,7 @@ function App() {
       setDashError("Add your Sheet URL in Settings first.");
       setDashSessions([]);
       setDashRecap(null);
+      setDashWeights([]);
       return;
     }
     setDashLoading(true);
@@ -1395,6 +1964,11 @@ function App() {
         setDashRecap(await fetchRecap(cfg));
       } catch (e) {
         setDashRecap(null);
+      }
+      try {
+        setDashWeights(await fetchWeights(cfg));
+      } catch (e) {
+        setDashWeights([]);
       }
     } catch (e) {
       setDashError("Couldn't load from the Sheet — check your connection or Sheet URL in Settings.");
@@ -1408,6 +1982,7 @@ function App() {
     setMenuOpen(false);
     window.scrollTo(0, 0);
     if (dest === "dashboard") loadDashboard();
+    if (dest === "nutrition" && !nutLoaded) loadNutrition();
   };
   const getRecommendations = async () => {
     if (!cfg.url) {
@@ -1522,7 +2097,7 @@ function App() {
     className: "text-amber-400 font-bold tracking-[0.2em] text-xs uppercase"
   }, "Toast Performance System"), /*#__PURE__*/React.createElement("div", {
     className: "text-2xl font-black tracking-tight leading-none mt-1 truncate"
-  }, view === "dashboard" ? "Dashboard" : view === "settings" ? "Settings" : "Workouts")))), menuOpen && /*#__PURE__*/React.createElement("div", {
+  }, view === "dashboard" ? "Dashboard" : view === "settings" ? "Settings" : view === "nutrition" ? "Nutrition" : "Workouts")))), menuOpen && /*#__PURE__*/React.createElement("div", {
     className: "fixed inset-0 z-50",
     onClick: () => setMenuOpen(false)
   }, /*#__PURE__*/React.createElement("div", {
@@ -1547,6 +2122,9 @@ function App() {
   }, {
     key: "workouts",
     label: "Workouts"
+  }, {
+    key: "nutrition",
+    label: "Nutrition"
   }, {
     key: "settings",
     label: "Settings"
@@ -1629,11 +2207,143 @@ function App() {
     className: "text-[10px] text-zinc-500 tabular-nums"
   }, dashRecap.date)), /*#__PURE__*/React.createElement("div", {
     className: "text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed"
-  }, dashRecap.text)), !dashError && dashSessions && dashSessions.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, dashRecap.text)), !dashError && dashWeights && dashWeights.length > 1 && /*#__PURE__*/React.createElement(WeightTrend, {
+    weights: dashWeights
+  }), !dashError && dashSessions && dashSessions.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
   }, "Progress"), !dashError && dashSessions && /*#__PURE__*/React.createElement(Dashboard, {
     sessions: dashSessions
-  })), view === "workouts" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  })), view === "nutrition" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Morning weigh-in"), wtTrend && /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] tabular-nums text-zinc-400"
+  }, "7-day ", wtTrend.rAvg.toFixed(1), " lb", /*#__PURE__*/React.createElement("span", {
+    className: wtTrend.delta <= 0 ? "text-emerald-400 ml-1.5" : "text-orange-400 ml-1.5"
+  }, wtTrend.delta <= 0 ? "▼" : "▲", " ", Math.abs(wtTrend.delta).toFixed(1)))), wtToday ? /*#__PURE__*/React.createElement("div", {
+    className: "flex items-baseline gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-3xl font-black text-zinc-100 tabular-nums"
+  }, wtToday.lb), /*#__PURE__*/React.createElement("span", {
+    className: "text-zinc-500 text-sm"
+  }, "lb today"), /*#__PURE__*/React.createElement("button", {
+    onClick: editWeightToday,
+    className: "ml-auto text-xs text-amber-400 font-semibold"
+  }, "edit")) : /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    inputMode: "decimal",
+    value: wInput,
+    onChange: e => setWInput(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") logWeight();
+    },
+    placeholder: "today's weight, lb",
+    className: "flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2.5 text-sm text-zinc-100 tabular-nums outline-none"
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: logWeight,
+    className: "bg-amber-400 text-zinc-950 font-bold rounded-md px-4 text-sm"
+  }, "Log")), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-zinc-600 mt-1.5"
+  }, "Trend chart is on your Dashboard.")), /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
+  }, NUT_MACROS.map(m => /*#__PURE__*/React.createElement(MacroBar, {
+    key: m.key,
+    label: m.label,
+    unit: m.unit,
+    consumed: mealTotals[m.key],
+    light: m.light,
+    heavy: m.heavy
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-zinc-600 mt-1"
+  }, "White line = today's total. Blue = easy-day range, amber = hard-day range.")), /*#__PURE__*/React.createElement("div", {
+    className: "mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
+  }, "Quick add — your foods"), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-2"
+  }, sortedFoods.map(f => /*#__PURE__*/React.createElement("button", {
+    key: f.name,
+    onClick: () => addFood(f),
+    className: "bg-zinc-900 border border-zinc-800 rounded-full pl-3 pr-2.5 py-1.5 text-sm text-zinc-200 active:bg-zinc-800"
+  }, f.name, /*#__PURE__*/React.createElement("span", {
+    className: "text-zinc-500 text-xs ml-1.5"
+  }, f.cal))))), /*#__PURE__*/React.createElement("div", {
+    className: "mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
+  }, "Describe a meal"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: mealText,
+    onChange: e => setMealText(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") logMeal();
+    },
+    placeholder: "e.g. chicken burrito bowl with rice & beans",
+    className: "flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2.5 text-sm text-zinc-100 outline-none"
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: logMeal,
+    disabled: estLoading,
+    className: "bg-amber-400 text-zinc-950 font-bold rounded-md px-4 text-sm disabled:opacity-50"
+  }, estLoading ? "…" : "Log")), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-zinc-600 mt-1.5"
+  }, cfg.url ? "Claude estimates the macros." : "Connect your Sheet in Settings for Claude estimates.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Today"), mealLog.length > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] text-zinc-500 tabular-nums"
+  }, mealLog.length, " item", mealLog.length > 1 ? "s" : "")), mealLog.length === 0 && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center text-sm text-zinc-500"
+  }, "Nothing logged yet — tap a food or describe a meal."), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, mealLog.map(e => {
+    const editing = mEditId === e.id;
+    return /*#__PURE__*/React.createElement("div", {
+      key: e.id,
+      className: "bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "min-w-0 flex-1"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "text-sm text-zinc-100 truncate"
+    }, e.name, e.est && /*#__PURE__*/React.createElement("span", {
+      className: "text-amber-400/70 text-[10px] ml-1.5"
+    }, "est")), /*#__PURE__*/React.createElement("div", {
+      className: "text-[11px] text-zinc-500 tabular-nums"
+    }, e.cal, " cal · ", e.p, "p / ", e.c, "c / ", e.f, "f · ", fmtAmt(e.amount), " ", e.unit)), /*#__PURE__*/React.createElement("button", {
+      onClick: () => editing ? setMEditId(null) : openMealEdit(e),
+      className: "shrink-0 text-base leading-none px-1",
+      style: {
+        color: editing ? "#fbbf24" : "#52525b"
+      }
+    }, "✎"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => removeMeal(e.id),
+      className: "shrink-0 text-zinc-600 text-sm px-1"
+    }, "✕")), editing && /*#__PURE__*/React.createElement("div", {
+      className: "mt-2.5 pt-2.5 border-t border-zinc-800 flex items-center gap-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-[11px] uppercase tracking-widest text-zinc-500 mr-1"
+    }, "Amount"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => bumpMeal(e, -1),
+      className: "w-8 h-8 rounded-md border border-zinc-700 text-zinc-300 text-lg leading-none"
+    }, "−"), /*#__PURE__*/React.createElement("input", {
+      inputMode: "decimal",
+      value: mEditAmt,
+      onChange: ev => onMealAmt(e.id, ev.target.value),
+      className: "w-16 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-center text-sm text-zinc-100 tabular-nums outline-none"
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => bumpMeal(e, 1),
+      className: "w-8 h-8 rounded-md border border-zinc-700 text-zinc-300 text-lg leading-none"
+    }, "+"), /*#__PURE__*/React.createElement("span", {
+      className: "text-sm text-zinc-400"
+    }, e.unit)));
+  })))), view === "workouts" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "flex gap-2 mb-4 items-end"
   }, /*#__PURE__*/React.createElement("label", {
     className: "block flex-1 min-w-0"
