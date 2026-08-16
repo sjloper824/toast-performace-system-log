@@ -1411,6 +1411,196 @@ function WeightTrend({
   }, "Dots = daily weigh-ins · amber line = 7-day trend"));
 }
 
+// chart-only weight sparkline (used inside the Training Focus weight card)
+function WeightSpark({
+  weights
+}) {
+  if (!weights || weights.length < 2) return null;
+  const s = [...weights].sort((a, b) => a.date < b.date ? -1 : 1).slice(-30);
+  const ma = s.map((_, i) => {
+    const w = s.slice(Math.max(0, i - 6), i + 1);
+    return w.reduce((x, y) => x + y.lb, 0) / w.length;
+  });
+  const vals = s.map(p => p.lb).concat(ma);
+  const min = Math.min(...vals),
+    max = Math.max(...vals),
+    pad = (max - min) * 0.2 || 1,
+    lo = min - pad,
+    hi = max + pad;
+  const W = 320,
+    H = 70,
+    x = i => s.length > 1 ? i / (s.length - 1) * W : 0,
+    y = v => H - (v - lo) / (hi - lo) * H;
+  const maPath = ma.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  return /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    preserveAspectRatio: "none",
+    className: "w-full",
+    style: {
+      height: "70px"
+    }
+  }, /*#__PURE__*/React.createElement("path", {
+    d: maPath,
+    fill: "none",
+    stroke: "#fbbf24",
+    strokeWidth: "2"
+  }), s.map((p, i) => /*#__PURE__*/React.createElement("circle", {
+    key: i,
+    cx: x(i),
+    cy: y(p.lb),
+    r: "1.6",
+    fill: "#71717a"
+  })));
+}
+
+// ---------- Training Focus dashboard (renders the structured recap) ----------
+function TrainingFocus({
+  data,
+  weights
+}) {
+  const d = data || {};
+  const tone = t => t === "ok" ? "text-emerald-400" : t === "under" ? "text-orange-400" : "text-zinc-300";
+  const vs = v => v ? /*#__PURE__*/React.createElement("span", null, "vs last: ", v.replace(/→.*/, "→"), /*#__PURE__*/React.createElement("span", {
+    className: "text-emerald-400 font-semibold"
+  }, v.split("→")[1] || "")) : null;
+  const box = "mt-2 bg-amber-400/10 border border-amber-400/20 rounded-md px-3 py-2 text-[13px] text-amber-300 leading-relaxed";
+  const lbl = "text-[10px] uppercase tracking-widest text-zinc-500 mb-2";
+  return /*#__PURE__*/React.createElement("div", null, (d.yesterday || d.today) && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3 mb-4 flex gap-4 text-sm"
+  }, d.yesterday && /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 min-w-0"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Yesterday"), /*#__PURE__*/React.createElement("div", {
+    className: "text-zinc-200 truncate"
+  }, d.yesterday)), d.today && /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 min-w-0"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, "Today"), /*#__PURE__*/React.createElement("div", {
+    className: "text-amber-400 font-semibold truncate"
+  }, d.today))), d.focus && d.focus.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-amber-400/30 rounded-xl p-4 mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: lbl
+  }, "Today's focus"), /*#__PURE__*/React.createElement("ul", {
+    className: "space-y-2"
+  }, d.focus.map((f, i) => /*#__PURE__*/React.createElement("li", {
+    key: i,
+    className: "flex gap-2 text-sm text-zinc-200 leading-relaxed"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-amber-400 shrink-0"
+  }, "›"), /*#__PURE__*/React.createElement("span", null, f))))), d.workout && d.workout.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: lbl
+  }, "Yesterday's workout"), d.workout.map((ex, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: `py-3 ${i ? "border-t border-zinc-800" : ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-bold text-[15px] text-zinc-100"
+  }, ex.name), ex.sets && ex.sets.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-zinc-200 mt-1"
+  }, ex.sets.map((sv, j) => /*#__PURE__*/React.createElement("span", {
+    key: j
+  }, j ? /*#__PURE__*/React.createElement("span", {
+    className: "text-zinc-600"
+  }, " · ") : null, /*#__PURE__*/React.createElement("span", {
+    className: ex.pr && ex.pr.indexOf(j) > -1 ? "text-emerald-400 font-bold" : ""
+  }, sv)))), ex.vs && /*#__PURE__*/React.createElement("div", {
+    className: "text-[12px] text-zinc-500 mt-1"
+  }, vs(ex.vs)), ex.rec && /*#__PURE__*/React.createElement("div", {
+    className: box
+  }, ex.rec))), d.ladder && /*#__PURE__*/React.createElement("div", {
+    className: "py-3 border-t border-zinc-800"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-bold text-[15px] text-zinc-100"
+  }, "Push / Pull Ladder"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-5 mt-1 text-sm"
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+    className: "text-lg font-black",
+    style: {
+      color: "#e8552e"
+    }
+  }, d.ladder.push), " ", /*#__PURE__*/React.createElement("span", {
+    className: "text-zinc-500"
+  }, "push")), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+    className: "text-lg font-black",
+    style: {
+      color: "#3ea6ff"
+    }
+  }, d.ladder.pull), " ", /*#__PURE__*/React.createElement("span", {
+    className: "text-zinc-500"
+  }, "pull"))), d.ladder.vs && /*#__PURE__*/React.createElement("div", {
+    className: "text-[12px] text-zinc-500 mt-1"
+  }, vs(d.ladder.vs)), d.ladder.rec && /*#__PURE__*/React.createElement("div", {
+    className: box
+  }, d.ladder.rec)), d.dynamic && /*#__PURE__*/React.createElement("div", {
+    className: "pt-3 border-t border-zinc-800 text-[13px] text-zinc-500"
+  }, d.dynamic)), (d.weight || weights && weights.length > 1) && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: lbl
+  }, "Weight"), d.weight && /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-3 mb-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex-1"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-zinc-500"
+  }, "Yesterday"), /*#__PURE__*/React.createElement("div", {
+    className: "text-lg font-black tabular-nums"
+  }, d.weight.yesterday, " ", /*#__PURE__*/React.createElement("span", {
+    className: "text-xs text-zinc-500 font-normal"
+  }, "lb"))), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-zinc-500"
+  }, "14-day avg"), /*#__PURE__*/React.createElement("div", {
+    className: "text-lg font-black tabular-nums"
+  }, d.weight.avg14, " ", /*#__PURE__*/React.createElement("span", {
+    className: "text-xs text-zinc-500 font-normal"
+  }, "lb"))), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-zinc-500"
+  }, "Trend"), /*#__PURE__*/React.createElement("div", {
+    className: "text-sm font-bold text-emerald-400"
+  }, d.weight.trend), d.weight.target && /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-zinc-600"
+  }, "target ", d.weight.target))), /*#__PURE__*/React.createElement(WeightSpark, {
+    weights: weights
+  })), d.nutrition && d.nutrition.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: lbl
+  }, "Yesterday's Nutrition"), /*#__PURE__*/React.createElement("table", {
+    className: "w-full text-sm"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+  }, /*#__PURE__*/React.createElement("th", {
+    className: "text-left font-normal pb-1"
+  }), /*#__PURE__*/React.createElement("th", {
+    className: "text-left font-normal pb-1"
+  }, "Total"), /*#__PURE__*/React.createElement("th", {
+    className: "text-left font-normal pb-1"
+  }, "Target"), /*#__PURE__*/React.createElement("th", {
+    className: "text-left font-normal pb-1"
+  }, "Diff"))), /*#__PURE__*/React.createElement("tbody", null, d.nutrition.map((r, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i,
+    className: "border-t border-zinc-800"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "py-1.5 text-zinc-300"
+  }, r.k), /*#__PURE__*/React.createElement("td", {
+    className: "py-1.5 tabular-nums text-zinc-100"
+  }, r.total), /*#__PURE__*/React.createElement("td", {
+    className: "py-1.5 tabular-nums text-zinc-500"
+  }, r.target), /*#__PURE__*/React.createElement("td", {
+    className: `py-1.5 font-semibold ${tone(r.tone)}`
+  }, r.diff))))), d.nutritionTakeaway && /*#__PURE__*/React.createElement("div", {
+    className: box
+  }, d.nutritionTakeaway)));
+}
+
 // ---------- Dashboard ----------
 function Dashboard({
   sessions
@@ -2197,7 +2387,10 @@ function App() {
     className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-400"
   }, dashError), !dashError && dashLoading && !dashSessions && /*#__PURE__*/React.createElement("div", {
     className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center text-sm text-zinc-500"
-  }, "Loading your training history…"), !dashError && dashRecap && /*#__PURE__*/React.createElement("div", {
+  }, "Loading your training history…"), !dashError && dashRecap && dashRecap.kind === "json" && dashRecap.recap && /*#__PURE__*/React.createElement(TrainingFocus, {
+    data: dashRecap.recap,
+    weights: dashWeights || []
+  }), !dashError && dashRecap && dashRecap.kind !== "json" && /*#__PURE__*/React.createElement("div", {
     className: "bg-zinc-900 border border-amber-400/30 rounded-xl p-4 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-2"
@@ -2207,11 +2400,11 @@ function App() {
     className: "text-[10px] text-zinc-500 tabular-nums"
   }, dashRecap.date)), /*#__PURE__*/React.createElement("div", {
     className: "text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed"
-  }, dashRecap.text)), !dashError && dashWeights && dashWeights.length > 1 && /*#__PURE__*/React.createElement(WeightTrend, {
+  }, dashRecap.text)), !dashError && (!dashRecap || dashRecap.kind !== "json") && dashWeights && dashWeights.length > 1 && /*#__PURE__*/React.createElement(WeightTrend, {
     weights: dashWeights
-  }), !dashError && dashSessions && dashSessions.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }), !dashError && (!dashRecap || dashRecap.kind !== "json") && dashSessions && dashSessions.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
-  }, "Progress"), !dashError && dashSessions && /*#__PURE__*/React.createElement(Dashboard, {
+  }, "Progress"), !dashError && (!dashRecap || dashRecap.kind !== "json") && dashSessions && /*#__PURE__*/React.createElement(Dashboard, {
     sessions: dashSessions
   })), view === "nutrition" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
