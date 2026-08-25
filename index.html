@@ -519,6 +519,41 @@ const TEMPLATES = {
       perSide: true
     }]
   },
+  lowerReintro: {
+    label: "Bulletproofing — Lower Reintroduction",
+    exercises: [{
+      name: "Goblet Squat",
+      target: "3×10",
+      sets: 3
+    }, {
+      name: "Trap Bar Deadlift",
+      target: "3×8",
+      sets: 3
+    }, {
+      name: "Spanish Squat",
+      target: "3×10",
+      sets: 3
+    }, {
+      name: "Single-Leg Leg Extension",
+      target: "3×10 each",
+      sets: 3,
+      perSide: true
+    }, {
+      name: "Standing Calf Raise",
+      target: "3×15",
+      sets: 3
+    }, {
+      name: "Pallof Press",
+      target: "3×10 each",
+      sets: 3,
+      perSide: true
+    }, {
+      name: "Dead Bug",
+      target: "3×10 each",
+      sets: 3,
+      perSide: true
+    }]
+  },
   freestyle: {
     label: "Freestyle — Blank",
     exercises: []
@@ -881,6 +916,7 @@ const SEED_FOODS = [{
 const r0 = n => Math.round(n);
 const fmtAmt = n => Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
 const stepFor = u => u && u.indexOf("cup") === 0 || u === "cup dry" ? 0.25 : 1;
+const UNITS = ["cup", "cup dry", "oz", "g", "tbsp", "tsp", "scoop", "slice", "piece", "large", "medium", "ml"];
 const Z_BLUE = "rgba(56,189,248,0.45)",
   Z_BLUE_DOT = "rgba(56,189,248,0.9)",
   Z_AMBER = "rgba(251,191,36,0.45)",
@@ -958,7 +994,7 @@ async function fetchMeals(cfg, date) {
     id: r.meal_id,
     name: r.name,
     amount: Number(r.amount) || 1,
-    unit: r.unit || "serving",
+    unit: r.unit || "g",
     cal: Number(r.cal) || 0,
     p: Number(r.protein) || 0,
     c: Number(r.carbs) || 0,
@@ -1038,7 +1074,7 @@ async function estimateMealRemote(cfg, text) {
   return {
     name: e.name || text,
     amount: Number(e.amount) || 1,
-    unit: e.unit || "serving",
+    unit: e.unit || "g",
     cal: Number(e.cal) || 0,
     p: Number(e.p) || 0,
     c: Number(e.c) || 0,
@@ -1934,7 +1970,7 @@ function App() {
     c: 0,
     f: 0
   });
-  const sortedFoods = [...foods].sort((a, b) => (b.count || 0) - (a.count || 0));
+  const sortedFoods = [...foods].sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 15);
   const pushMeal = e => postMeal(cfg, {
     id: e.id,
     date: e.date,
@@ -1978,8 +2014,8 @@ function App() {
     try {
       const est = cfg.url ? await estimateMealRemote(cfg, text) : {
         name: text,
-        amount: 1,
-        unit: "serving",
+        amount: 450,
+        unit: "g",
         cal: 480,
         p: 32,
         c: 55,
@@ -1990,7 +2026,7 @@ function App() {
         id: uid(),
         date: today(),
         name: nm,
-        unit: est.unit || "serving",
+        unit: est.unit || "g",
         baseAmount: est.amount || 1,
         bcal: est.cal,
         bp: est.p,
@@ -2010,7 +2046,7 @@ function App() {
       } : f) : [...foods, {
         name: nm,
         amount: est.amount || 1,
-        unit: est.unit || "serving",
+        unit: est.unit || "g",
         cal: est.cal,
         p: est.p,
         c: est.c,
@@ -2055,6 +2091,21 @@ function App() {
     setMEditAmt(String(n));
     applyMealAmount(e.id, n);
   };
+  // change the measurement unit; keep current macros for the current amount (rebase to the new unit)
+  const changeMealUnit = (id, unit) => setMealLog(l => l.map(e => {
+    if (e.id !== id) return e;
+    const ne = {
+      ...e,
+      unit,
+      baseAmount: e.amount,
+      bcal: e.cal,
+      bp: e.p,
+      bc: e.c,
+      bf: e.f
+    };
+    pushMeal(ne);
+    return ne;
+  }));
   const removeMeal = id => {
     setMealLog(l => l.filter(e => e.id !== id));
     deleteMealRemote(cfg, id);
@@ -2533,9 +2584,14 @@ function App() {
     }), /*#__PURE__*/React.createElement("button", {
       onClick: () => bumpMeal(e, 1),
       className: "w-8 h-8 rounded-md border border-zinc-700 text-zinc-300 text-lg leading-none"
-    }, "+"), /*#__PURE__*/React.createElement("span", {
-      className: "text-sm text-zinc-400"
-    }, e.unit)));
+    }, "+"), /*#__PURE__*/React.createElement("select", {
+      value: e.unit,
+      onChange: ev => changeMealUnit(e.id, ev.target.value),
+      className: "bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-sm text-zinc-300 outline-none"
+    }, (UNITS.indexOf(e.unit) > -1 ? UNITS : [e.unit, ...UNITS]).map(u => /*#__PURE__*/React.createElement("option", {
+      key: u,
+      value: u
+    }, u)))));
   })))), view === "workouts" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "flex gap-2 mb-4 items-end"
   }, /*#__PURE__*/React.createElement("label", {
