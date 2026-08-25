@@ -916,7 +916,11 @@ const SEED_FOODS = [{
 const r0 = n => Math.round(n);
 const fmtAmt = n => Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
 const stepFor = u => u && u.indexOf("cup") === 0 || u === "cup dry" ? 0.25 : 1;
-const UNITS = ["cup", "cup dry", "oz", "g", "tbsp", "tsp", "scoop", "slice", "piece", "large", "medium", "ml"];
+const UNITS = ["oz", "g", "cup", "cup dry", "tbsp", "tsp", "scoop", "slice", "piece", "large", "medium", "ml"];
+const G_PER = {
+  g: 1,
+  oz: 28.3495
+}; // weight units that can convert into each other
 const Z_BLUE = "rgba(56,189,248,0.45)",
   Z_BLUE_DOT = "rgba(56,189,248,0.9)",
   Z_AMBER = "rgba(251,191,36,0.45)",
@@ -2014,8 +2018,8 @@ function App() {
     try {
       const est = cfg.url ? await estimateMealRemote(cfg, text) : {
         name: text,
-        amount: 450,
-        unit: "g",
+        amount: 16,
+        unit: "oz",
         cal: 480,
         p: 32,
         c: 55,
@@ -2091,21 +2095,37 @@ function App() {
     setMEditAmt(String(n));
     applyMealAmount(e.id, n);
   };
-  // change the measurement unit; keep current macros for the current amount (rebase to the new unit)
-  const changeMealUnit = (id, unit) => setMealLog(l => l.map(e => {
-    if (e.id !== id) return e;
-    const ne = {
-      ...e,
-      unit,
-      baseAmount: e.amount,
-      bcal: e.cal,
-      bp: e.p,
-      bc: e.c,
-      bf: e.f
-    };
+  // change the measurement unit. Between weight units (g <-> oz) convert the amount and
+  // keep the food's macro density correct. Between incompatible units, rebase.
+  const changeMealUnit = (id, unit) => {
+    const e = mealLog.find(x => x.id === id);
+    if (!e) return;
+    var ne;
+    if (G_PER[unit] && G_PER[e.unit]) {
+      const factor = G_PER[e.unit] / G_PER[unit];
+      const amount = Math.round(e.amount * factor * 100) / 100;
+      ne = {
+        ...e,
+        unit,
+        amount,
+        baseAmount: e.baseAmount * factor
+      };
+      setMEditAmt(String(amount));
+    } else {
+      ne = {
+        ...e,
+        unit,
+        baseAmount: e.amount,
+        bcal: e.cal,
+        bp: e.p,
+        bc: e.c,
+        bf: e.f
+      };
+      setMEditAmt(String(e.amount));
+    }
+    setMealLog(l => l.map(x => x.id === id ? ne : x));
     pushMeal(ne);
-    return ne;
-  }));
+  };
   const removeMeal = id => {
     setMealLog(l => l.filter(e => e.id !== id));
     deleteMealRemote(cfg, id);
