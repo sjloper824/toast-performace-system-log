@@ -334,6 +334,7 @@ const DRAFT_KEY = "toast:draft";
 const DRAFTK_KEY = "toast:draftKey";
 const SEED_FLAG = "toast:seeded_v1";
 const CFG_KEY = "toast:cfg";
+const PRESETS_KEY = "toast:presets";
 const PUSH = "#e8552e";
 const PULL = "#3ea6ff";
 const today = () => {
@@ -670,23 +671,22 @@ const FEELS = [{
   v: 5,
   label: "Peak"
 }];
-function buildDraft(templateKey) {
-  const t = TEMPLATES[templateKey];
+function buildDraftFromTemplate(t) {
   return {
     type: t.label,
     date: today(),
     feel: 3,
     notes: "",
     finisher: null,
-    exercises: t.exercises.map(ex => ({
+    exercises: (t.exercises || []).map(ex => ({
       id: uid(),
       name: ex.name,
-      target: ex.target,
+      target: ex.target || "",
       perSide: !!ex.perSide,
       feel: null,
       note: "",
       sets: Array.from({
-        length: ex.sets
+        length: ex.sets || 3
       }, () => ({
         weight: "",
         reps: "",
@@ -694,6 +694,9 @@ function buildDraft(templateKey) {
       }))
     }))
   };
+}
+function buildDraft(templateKey) {
+  return buildDraftFromTemplate(TEMPLATES[templateKey]);
 }
 
 // ---------- sheet sync ----------
@@ -1083,6 +1086,24 @@ async function estimateMealRemote(cfg, text) {
     p: Number(e.p) || 0,
     c: Number(e.c) || 0,
     f: Number(e.f) || 0
+  };
+}
+async function buildWorkoutRemote(cfg, desc) {
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}action=build&token=${encodeURIComponent(cfg.token || "")}&desc=${encodeURIComponent(desc)}`;
+  const d = await (await fetch(url, {
+    method: "GET"
+  })).json();
+  if (!d.ok || !d.workout) throw new Error(d.error || "Couldn't build that workout.");
+  const w = d.workout;
+  return {
+    label: w.name || desc,
+    why: w.why || "",
+    exercises: (w.exercises || []).map(x => ({
+      name: x.name,
+      target: x.target || "",
+      sets: Number(x.sets) || 3,
+      perSide: !!x.perSide
+    }))
   };
 }
 
@@ -1811,6 +1832,12 @@ function App() {
   const [sessions, setSessions] = useState(initSessions);
   const [templateKey, setTemplateKey] = useState(() => LS.get(DRAFTK_KEY) || "lower");
   const [draft, setDraft] = useState(() => LS.get(DRAFT_KEY) || buildDraft(LS.get(DRAFTK_KEY) || "lower"));
+  const [customPresets, setCustomPresets] = useState(() => LS.get(PRESETS_KEY) || {});
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [bInput, setBInput] = useState("");
+  const [bLoading, setBLoading] = useState(false);
+  const [bProposal, setBProposal] = useState(null);
+  const [bError, setBError] = useState("");
   const [toast, setToast] = useState("");
   const [openNotes, setOpenNotes] = useState(() => new Set());
   const [view, setView] = useState("workouts"); // "workouts" | "dashboard" | "settings"
@@ -1849,6 +1876,13 @@ function App() {
   useEffect(() => {
     LS.set(DRAFTK_KEY, templateKey);
   }, [templateKey]);
+  // date always tracks today (no manual date picker); keeps the Sheet log accurate
+  useEffect(() => {
+    if (draft.date !== today()) setDraft(d => ({
+      ...d,
+      date: today()
+    }));
+  }, []);
   const persist = next => {
     setSessions(next);
     LS.set(STORAGE_KEY, next);
@@ -1875,10 +1909,119 @@ function App() {
     const topSet = top != null ? done.find(s => parseFloat(s.weight) === top) : done[0];
     return `${prior.date} · top ${topSet.weight || "BW"} × ${topSet.reps || "?"}`;
   }, [sessions]);
+  const allTemplates = {
+    ...TEMPLATES,
+    ...customPresets
+  };
   const swapTemplate = key => {
+    const t = allTemplates[key];
+    if (!t) return;
     setTemplateKey(key);
-    setDraft(buildDraft(key));
+    setDraft(buildDraftFromTemplate(t));
     setOpenNotes(new Set());
+  };
+  const saveCustomPresets = p => {
+    setCustomPresets(p);
+    LS.set(PRESETS_KEY, p);
+  };
+  // build/refine a workout with Claude in a preview overlay before applying it
+  const openBuilder = () => {
+    setBuilderOpen(true);
+    setBProposal(null);
+    setBInput("");
+    setBError("");
+  };
+  const runBuild = async refine => {
+    const text = bInput.trim();
+    if (!text) return;
+    setBLoading(true);
+    setBError("");
+    try {
+      const desc = refine && bProposal ? "Current workout JSON: " + JSON.stringify({
+        name: bProposal.label,
+        exercises: bProposal.exercises
+      }) + ". Refinement request: " + text + ". Keep what still fits and return the full updated workout." : text;
+      const w = cfg.url ? await buildWorkoutRemote(cfg, desc) : {
+        label: refine && bProposal ? bProposal.label : "Custom: " + text.slice(0, 28),
+        why: "(Preview) These are quad-focused, knee-friendly picks that avoid heavy hinging; controlled tempo keeps the tendon happy during reintroduction.",
+        exercises: [{
+          name: "Goblet Squat",
+          target: "3×10",
+          sets: 3
+        }, {
+          name: "Spanish Squat",
+          target: "3×12",
+          sets: 3
+        }, {
+          name: "Single-Leg Leg Extension",
+          target: "3×10 each",
+          sets: 3,
+          perSide: true
+        }, {
+          name: "Standing Calf Raise",
+          target: "3×15",
+          sets: 3
+        }, {
+          name: "Pallof Press",
+          target: "3×10 each",
+          sets: 3,
+          perSide: true
+        }]
+      };
+      setBProposal(w);
+      setBInput("");
+    } catch (err) {
+      setBError(err.message);
+    } finally {
+      setBLoading(false);
+    }
+  };
+  const useBuiltWorkout = () => {
+    if (!bProposal) return;
+    setTemplateKey("__built__");
+    setDraft(buildDraftFromTemplate(bProposal));
+    setOpenNotes(new Set());
+    setBuilderOpen(false);
+    window.scrollTo(0, 0);
+    flash("Workout loaded. Log it, or tap Save Workout to keep it.");
+  };
+  // save the current workout structure as a reusable preset (no code push needed)
+  const saveAsPreset = () => {
+    if (!draft.exercises.length) {
+      flash("Add or build some exercises first.");
+      return;
+    }
+    const name = typeof window !== "undefined" && window.prompt ? window.prompt("Name this preset:", draft.type || "My workout") : draft.type || "My workout";
+    if (!name) return;
+    const key = "custom_" + uid();
+    const preset = {
+      label: name,
+      exercises: draft.exercises.map(e => ({
+        name: e.name,
+        target: e.target || "",
+        sets: e.sets.length,
+        perSide: !!e.perSide
+      }))
+    };
+    saveCustomPresets({
+      ...customPresets,
+      [key]: preset
+    });
+    setTemplateKey(key);
+    setDraft(d => ({
+      ...d,
+      type: name
+    }));
+    flash("Saved to your workout list.");
+  };
+  const deletePreset = key => {
+    const p = {
+      ...customPresets
+    };
+    delete p[key];
+    saveCustomPresets(p);
+    swapTemplate("lower");
+    flash("Preset removed.");
   };
   const setField = (k, v) => setDraft(d => ({
     ...d,
@@ -2613,36 +2756,43 @@ function App() {
       value: u
     }, u)))));
   })))), view === "workouts" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-2 mb-4 items-end"
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "block flex-1 min-w-0"
+    className: "mb-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-1"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] uppercase tracking-widest text-zinc-500"
-  }, "Workout"), /*#__PURE__*/React.createElement("div", {
-    className: "relative mt-1"
+  }, "Workout"), /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] uppercase tracking-widest text-zinc-500 tabular-nums"
+  }, new Date(draft.date + "T00:00:00").toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "relative flex-1 min-w-0"
   }, /*#__PURE__*/React.createElement("select", {
     value: templateKey,
     onChange: e => swapTemplate(e.target.value),
     className: "w-full bg-zinc-900 border border-zinc-800 rounded-md pl-3 pr-8 py-2.5 text-zinc-100 font-semibold outline-none appearance-none truncate"
-  }, Object.entries(TEMPLATES).map(([k, t]) => /*#__PURE__*/React.createElement("option", {
+  }, Object.entries(allTemplates).map(([k, t]) => /*#__PURE__*/React.createElement("option", {
     key: k,
     value: k
-  }, t.label))), /*#__PURE__*/React.createElement("span", {
+  }, t.label)), templateKey === "__built__" && /*#__PURE__*/React.createElement("option", {
+    value: "__built__"
+  }, draft.type)), /*#__PURE__*/React.createElement("span", {
     className: "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500"
-  }, "▾"))), /*#__PURE__*/React.createElement("label", {
-    className: "block shrink-0"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
-  }, "Date"), /*#__PURE__*/React.createElement("input", {
-    type: "date",
-    value: draft.date,
-    onChange: e => setField("date", e.target.value),
-    className: "block mt-1 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2.5 text-zinc-100 tabular-nums"
-  }))), draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "▾")), /*#__PURE__*/React.createElement("button", {
+    onClick: openBuilder,
+    className: "shrink-0 border border-amber-400/40 text-amber-400 rounded-md px-3 text-sm font-semibold whitespace-nowrap"
+  }, "Build a Workout")), customPresets[templateKey] && /*#__PURE__*/React.createElement("button", {
+    onClick: () => deletePreset(templateKey),
+    className: "text-[11px] text-zinc-500 mt-1"
+  }, "Remove this preset")), draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: getRecommendations,
     disabled: recLoading,
     className: "w-full mb-4 border border-amber-400/40 text-amber-400 rounded-md py-2.5 text-sm font-semibold disabled:opacity-50"
-  }, recLoading ? "Asking Claude…" : "Recommend Weights + Reps"), /*#__PURE__*/React.createElement("div", {
+  }, recLoading ? "Asking…" : "Recommend Weights"), /*#__PURE__*/React.createElement("div", {
     className: "space-y-3"
   }, draft.exercises.map(ex => {
     return /*#__PURE__*/React.createElement("div", {
@@ -2781,7 +2931,67 @@ function App() {
   })), /*#__PURE__*/React.createElement("button", {
     onClick: requestSave,
     className: "w-full mt-6 bg-amber-400 text-zinc-950 font-black rounded-xl py-3.5 text-base tracking-wide"
-  }, "Save session"))), confirmOpen && /*#__PURE__*/React.createElement("div", {
+  }, "Save session"), (!allTemplates[templateKey] || templateKey === "freestyle") && draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: saveAsPreset,
+    className: "w-full mt-2 border border-amber-400/40 text-amber-400 rounded-xl py-3 font-bold tracking-wide"
+  }, "Save Workout"))), builderOpen && /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-50 bg-zinc-950/95 flex flex-col"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "max-w-md w-full mx-auto flex-1 flex flex-col px-4 pb-4",
+    style: {
+      paddingTop: "max(1rem, env(safe-area-inset-top))"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between py-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-amber-400 font-bold tracking-[0.2em] text-xs uppercase"
+  }, "Build a workout"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setBuilderOpen(false),
+    "aria-label": "Close",
+    className: "text-zinc-500 text-xl leading-none px-1"
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 overflow-y-auto"
+  }, !bProposal && !bLoading && !bError && /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-zinc-400 leading-relaxed"
+  }, "Describe the session you want and Claude designs it, using your training context so it stays knee-aware for rehab work.", /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 text-[12px] text-zinc-600"
+  }, "e.g. \"45-min lower rehab, quad-focused, easy on the knee, no heavy hinging\"")), bError && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-400 mb-3"
+  }, bError), bLoading && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center text-sm text-zinc-500"
+  }, "Claude is designing it…"), bProposal && !bLoading && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-lg font-black text-zinc-100 mb-1"
+  }, bProposal.label), bProposal.why && /*#__PURE__*/React.createElement("div", {
+    className: "bg-amber-400/10 border border-amber-400/20 rounded-md px-3 py-2 text-[13px] text-amber-300 leading-relaxed mb-3"
+  }, bProposal.why), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, bProposal.exercises.map((ex, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 flex items-center justify-between gap-3"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-sm text-zinc-100 min-w-0 truncate"
+  }, ex.name), /*#__PURE__*/React.createElement("span", {
+    className: "text-xs text-zinc-500 tabular-nums shrink-0"
+  }, ex.target || ex.sets + " sets")))))), /*#__PURE__*/React.createElement("div", {
+    className: "pt-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 mb-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: bInput,
+    onChange: e => setBInput(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") runBuild(!!bProposal);
+    },
+    placeholder: bProposal ? "Refine it (e.g. swap in a leg press)…" : "Describe the workout…",
+    className: "flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2.5 text-sm text-zinc-100 outline-none"
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => runBuild(!!bProposal),
+    disabled: bLoading,
+    className: "shrink-0 border border-amber-400/40 text-amber-400 font-semibold rounded-md px-4 text-sm disabled:opacity-50"
+  }, bProposal ? "Refine" : "Build")), bProposal && !bLoading && /*#__PURE__*/React.createElement("button", {
+    onClick: useBuiltWorkout,
+    className: "w-full bg-amber-400 text-zinc-950 font-black rounded-xl py-3 text-base tracking-wide"
+  }, "Use this workout")))), confirmOpen && /*#__PURE__*/React.createElement("div", {
     className: "fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-6"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-xs text-center"
