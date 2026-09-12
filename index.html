@@ -1088,22 +1088,28 @@ async function estimateMealRemote(cfg, text) {
     f: Number(e.f) || 0
   };
 }
-async function buildWorkoutRemote(cfg, desc) {
-  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}action=build&token=${encodeURIComponent(cfg.token || "")}&desc=${encodeURIComponent(desc)}`;
+async function chatBuildRemote(cfg, msg, current) {
+  const cur = current ? "&current=" + encodeURIComponent(JSON.stringify({
+    name: current.label,
+    exercises: current.exercises
+  })) : "";
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}action=build&token=${encodeURIComponent(cfg.token || "")}&msg=${encodeURIComponent(msg)}${cur}`;
   const d = await (await fetch(url, {
     method: "GET"
   })).json();
-  if (!d.ok || !d.workout) throw new Error(d.error || "Couldn't build that workout.");
-  const w = d.workout;
-  return {
-    label: w.name || desc,
-    why: w.why || "",
-    exercises: (w.exercises || []).map(x => ({
+  if (!d.ok) throw new Error(d.error || "Couldn't build that.");
+  const w = d.workout ? {
+    label: d.workout.name || "Workout",
+    exercises: (d.workout.exercises || []).map(x => ({
       name: x.name,
       target: x.target || "",
       sets: Number(x.sets) || 3,
       perSide: !!x.perSide
     }))
+  } : null;
+  return {
+    reply: d.reply || "",
+    workout: w
   };
 }
 
@@ -1836,8 +1842,9 @@ function App() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [bInput, setBInput] = useState("");
   const [bLoading, setBLoading] = useState(false);
-  const [bProposal, setBProposal] = useState(null);
-  const [bError, setBError] = useState("");
+  const [chatMsgs, setChatMsgs] = useState([]);
+  const [overlayH, setOverlayH] = useState(null);
+  const chatScrollRef = useRef(null);
   const [toast, setToast] = useState("");
   const [openNotes, setOpenNotes] = useState(() => new Set());
   const [view, setView] = useState("workouts"); // "workouts" | "dashboard" | "settings"
@@ -1924,67 +1931,92 @@ function App() {
     setCustomPresets(p);
     LS.set(PRESETS_KEY, p);
   };
-  // build/refine a workout with Claude in a preview overlay before applying it
+  // conversational workout builder (chat with Claude to design/refine, then apply)
   const openBuilder = () => {
     setBuilderOpen(true);
-    setBProposal(null);
+    setChatMsgs([]);
     setBInput("");
-    setBError("");
   };
-  const runBuild = async refine => {
+  const sendChat = async () => {
     const text = bInput.trim();
-    if (!text) return;
+    if (!text || bLoading) return;
+    setChatMsgs(m => [...m, {
+      role: "user",
+      text: text
+    }]);
+    setBInput("");
     setBLoading(true);
-    setBError("");
+    const current = [...chatMsgs].reverse().find(m => m.workout);
     try {
-      const desc = refine && bProposal ? "Current workout JSON: " + JSON.stringify({
-        name: bProposal.label,
-        exercises: bProposal.exercises
-      }) + ". Refinement request: " + text + ". Keep what still fits and return the full updated workout." : text;
-      const w = cfg.url ? await buildWorkoutRemote(cfg, desc) : {
-        label: refine && bProposal ? bProposal.label : "Custom: " + text.slice(0, 28),
-        why: "(Preview) These are quad-focused, knee-friendly picks that avoid heavy hinging; controlled tempo keeps the tendon happy during reintroduction.",
-        exercises: [{
-          name: "Goblet Squat",
-          target: "3×10",
-          sets: 3
-        }, {
-          name: "Spanish Squat",
-          target: "3×12",
-          sets: 3
-        }, {
-          name: "Single-Leg Leg Extension",
-          target: "3×10 each",
-          sets: 3,
-          perSide: true
-        }, {
-          name: "Standing Calf Raise",
-          target: "3×15",
-          sets: 3
-        }, {
-          name: "Pallof Press",
-          target: "3×10 each",
-          sets: 3,
-          perSide: true
-        }]
+      const res = cfg.url ? await chatBuildRemote(cfg, text, current ? current.workout : null) : {
+        reply: "(Preview) Here's a knee-friendly, quad-focused lower session. I kept hinging light and volume moderate for reintroduction. Tell me what to change.",
+        workout: {
+          label: "Lower Reintroduction",
+          exercises: [{
+            name: "Goblet Squat",
+            target: "3×10",
+            sets: 3
+          }, {
+            name: "Spanish Squat",
+            target: "3×12",
+            sets: 3
+          }, {
+            name: "Single-Leg Leg Extension",
+            target: "3×10 each",
+            sets: 3,
+            perSide: true
+          }, {
+            name: "Standing Calf Raise",
+            target: "3×15",
+            sets: 3
+          }, {
+            name: "Pallof Press",
+            target: "3×10 each",
+            sets: 3,
+            perSide: true
+          }]
+        }
       };
-      setBProposal(w);
-      setBInput("");
+      setChatMsgs(m => [...m, {
+        role: "assistant",
+        text: res.reply,
+        workout: res.workout
+      }]);
     } catch (err) {
-      setBError(err.message);
+      setChatMsgs(m => [...m, {
+        role: "assistant",
+        text: "Couldn't build that: " + err.message
+      }]);
     } finally {
       setBLoading(false);
     }
   };
-  const useBuiltWorkout = () => {
-    if (!bProposal) return;
+  const useBuiltWorkout = w => {
+    if (!w) return;
     setTemplateKey("__built__");
-    setDraft(buildDraftFromTemplate(bProposal));
+    setDraft(buildDraftFromTemplate(w));
     setOpenNotes(new Set());
     setBuilderOpen(false);
     window.scrollTo(0, 0);
     flash("Workout loaded. Log it, or tap Save Workout to keep it.");
   };
+  // keep the chat scrolled to the latest message
+  useEffect(() => {
+    if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+  }, [chatMsgs, bLoading, builderOpen]);
+  // shrink the chat overlay to the visible area when the mobile keyboard opens
+  useEffect(() => {
+    if (!builderOpen || typeof window === "undefined" || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const on = () => setOverlayH(vv.height);
+    on();
+    vv.addEventListener("resize", on);
+    vv.addEventListener("scroll", on);
+    return () => {
+      vv.removeEventListener("resize", on);
+      vv.removeEventListener("scroll", on);
+    };
+  }, [builderOpen]);
   // save the current workout structure as a reusable preset (no code push needed)
   const saveAsPreset = () => {
     if (!draft.exercises.length) {
@@ -2935,63 +2967,76 @@ function App() {
     onClick: saveAsPreset,
     className: "w-full mt-2 border border-amber-400/40 text-amber-400 rounded-xl py-3 font-bold tracking-wide"
   }, "Save Workout"))), builderOpen && /*#__PURE__*/React.createElement("div", {
-    className: "fixed inset-0 z-50 bg-zinc-950/95 flex flex-col"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "max-w-md w-full mx-auto flex-1 flex flex-col px-4 pb-4",
+    className: "fixed left-0 right-0 top-0 z-50 bg-zinc-950 flex flex-col",
     style: {
-      paddingTop: "max(1rem, env(safe-area-inset-top))"
+      height: overlayH ? overlayH + "px" : "100dvh"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between py-3"
+    className: "max-w-md w-full mx-auto flex-1 flex flex-col min-h-0 px-4",
+    style: {
+      paddingTop: "max(0.5rem, env(safe-area-inset-top))"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between py-3 shrink-0 border-b border-zinc-900"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-amber-400 font-bold tracking-[0.2em] text-xs uppercase"
-  }, "Build a workout"), /*#__PURE__*/React.createElement("button", {
+  }, "Build a Workout"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setBuilderOpen(false),
     "aria-label": "Close",
     className: "text-zinc-500 text-xl leading-none px-1"
   }, "✕")), /*#__PURE__*/React.createElement("div", {
-    className: "flex-1 overflow-y-auto"
-  }, !bProposal && !bLoading && !bError && /*#__PURE__*/React.createElement("div", {
+    ref: chatScrollRef,
+    className: "flex-1 overflow-y-auto min-h-0 space-y-3 py-3"
+  }, chatMsgs.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "text-sm text-zinc-400 leading-relaxed"
-  }, "Describe the session you want and Claude designs it, using your training context so it stays knee-aware for rehab work.", /*#__PURE__*/React.createElement("div", {
+  }, "Tell me the session you want and I'll design it, then we can refine it together. I'll use your training context, so rehab work stays knee-aware.", /*#__PURE__*/React.createElement("div", {
     className: "mt-2 text-[12px] text-zinc-600"
-  }, "e.g. \"45-min lower rehab, quad-focused, easy on the knee, no heavy hinging\"")), bError && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-400 mb-3"
-  }, bError), bLoading && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center text-sm text-zinc-500"
-  }, "Claude is designing it…"), bProposal && !bLoading && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "text-lg font-black text-zinc-100 mb-1"
-  }, bProposal.label), bProposal.why && /*#__PURE__*/React.createElement("div", {
-    className: "bg-amber-400/10 border border-amber-400/20 rounded-md px-3 py-2 text-[13px] text-amber-300 leading-relaxed mb-3"
-  }, bProposal.why), /*#__PURE__*/React.createElement("div", {
-    className: "space-y-2"
-  }, bProposal.exercises.map((ex, i) => /*#__PURE__*/React.createElement("div", {
+  }, "e.g. \"45-min lower rehab, quad-focused, easy on the knee, no heavy hinging\"")), chatMsgs.map((m, i) => m.role === "user" ? /*#__PURE__*/React.createElement("div", {
     key: i,
-    className: "bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 flex items-center justify-between gap-3"
+    className: "flex justify-end"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bg-amber-400/15 border border-amber-400/20 text-zinc-100 rounded-2xl rounded-br-sm px-3 py-2 text-sm max-w-[85%] whitespace-pre-wrap"
+  }, m.text)) : /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "flex flex-col items-start gap-2"
+  }, m.text && /*#__PURE__*/React.createElement("div", {
+    className: "bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-2xl rounded-bl-sm px-3 py-2 text-sm max-w-[90%] leading-relaxed whitespace-pre-wrap"
+  }, m.text), m.workout && /*#__PURE__*/React.createElement("div", {
+    className: "w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-bold text-[15px] text-zinc-100 mb-2"
+  }, m.workout.label), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-1.5"
+  }, m.workout.exercises.map((ex, j) => /*#__PURE__*/React.createElement("div", {
+    key: j,
+    className: "flex items-center justify-between gap-3 text-sm"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-sm text-zinc-100 min-w-0 truncate"
+    className: "text-zinc-200 min-w-0 truncate"
   }, ex.name), /*#__PURE__*/React.createElement("span", {
     className: "text-xs text-zinc-500 tabular-nums shrink-0"
-  }, ex.target || ex.sets + " sets")))))), /*#__PURE__*/React.createElement("div", {
-    className: "pt-3"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-2 mb-2"
+  }, ex.target || ex.sets + " sets")))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => useBuiltWorkout(m.workout),
+    className: "w-full mt-3 bg-amber-400 text-zinc-950 font-bold rounded-lg py-2 text-sm"
+  }, "Use this workout")))), bLoading && /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-zinc-500"
+  }, "Claude is thinking…")), /*#__PURE__*/React.createElement("div", {
+    className: "shrink-0 flex gap-2 py-2 border-t border-zinc-900",
+    style: {
+      paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))"
+    }
   }, /*#__PURE__*/React.createElement("input", {
     value: bInput,
     onChange: e => setBInput(e.target.value),
     onKeyDown: e => {
-      if (e.key === "Enter") runBuild(!!bProposal);
+      if (e.key === "Enter") sendChat();
     },
-    placeholder: bProposal ? "Refine it (e.g. swap in a leg press)…" : "Describe the workout…",
-    className: "flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2.5 text-sm text-zinc-100 outline-none"
+    placeholder: chatMsgs.length ? "Refine it…" : "Describe the workout…",
+    className: "flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-full px-4 py-2.5 text-sm text-zinc-100 outline-none"
   }), /*#__PURE__*/React.createElement("button", {
-    onClick: () => runBuild(!!bProposal),
+    onClick: sendChat,
     disabled: bLoading,
-    className: "shrink-0 border border-amber-400/40 text-amber-400 font-semibold rounded-md px-4 text-sm disabled:opacity-50"
-  }, bProposal ? "Refine" : "Build")), bProposal && !bLoading && /*#__PURE__*/React.createElement("button", {
-    onClick: useBuiltWorkout,
-    className: "w-full bg-amber-400 text-zinc-950 font-black rounded-xl py-3 text-base tracking-wide"
-  }, "Use this workout")))), confirmOpen && /*#__PURE__*/React.createElement("div", {
+    className: "shrink-0 bg-amber-400 text-zinc-950 font-bold rounded-full px-5 text-sm disabled:opacity-50"
+  }, "Send")))), confirmOpen && /*#__PURE__*/React.createElement("div", {
     className: "fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-6"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-xs text-center"
