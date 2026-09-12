@@ -1844,7 +1844,9 @@ function App() {
   const [bLoading, setBLoading] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
   const [overlayH, setOverlayH] = useState(null);
+  const [overlayTop, setOverlayTop] = useState(0);
   const chatScrollRef = useRef(null);
+  const bInputRef = useRef(null);
   const [toast, setToast] = useState("");
   const [openNotes, setOpenNotes] = useState(() => new Set());
   const [view, setView] = useState("workouts"); // "workouts" | "dashboard" | "settings"
@@ -2004,17 +2006,41 @@ function App() {
   useEffect(() => {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
   }, [chatMsgs, bLoading, builderOpen]);
-  // shrink the chat overlay to the visible area when the mobile keyboard opens
+  // full-screen lock: pin the overlay to the visible viewport and stop the page behind from scrolling
   useEffect(() => {
-    if (!builderOpen || typeof window === "undefined" || !window.visualViewport) return;
-    const vv = window.visualViewport;
-    const on = () => setOverlayH(vv.height);
+    if (!builderOpen) return;
+    const body = document.body,
+      html = document.documentElement;
+    const prevBody = body.style.overflow,
+      prevHtml = html.style.overflow;
+    body.style.overflow = "hidden";
+    html.style.overflow = "hidden";
+    const vv = typeof window !== "undefined" && window.visualViewport;
+    const on = () => {
+      if (vv) {
+        setOverlayH(vv.height);
+        setOverlayTop(vv.offsetTop || 0);
+      }
+    };
     on();
-    vv.addEventListener("resize", on);
-    vv.addEventListener("scroll", on);
+    if (vv) {
+      vv.addEventListener("resize", on);
+      vv.addEventListener("scroll", on);
+    }
+    // bring the keyboard up as soon as the builder opens
+    const t = setTimeout(() => {
+      if (bInputRef.current) bInputRef.current.focus();
+    }, 120);
     return () => {
-      vv.removeEventListener("resize", on);
-      vv.removeEventListener("scroll", on);
+      body.style.overflow = prevBody;
+      html.style.overflow = prevHtml;
+      if (vv) {
+        vv.removeEventListener("resize", on);
+        vv.removeEventListener("scroll", on);
+      }
+      clearTimeout(t);
+      setOverlayH(null);
+      setOverlayTop(0);
     };
   }, [builderOpen]);
   // save the current workout structure as a reusable preset (no code push needed)
@@ -2967,8 +2993,9 @@ function App() {
     onClick: saveAsPreset,
     className: "w-full mt-2 border border-amber-400/40 text-amber-400 rounded-xl py-3 font-bold tracking-wide"
   }, "Save Workout"))), builderOpen && /*#__PURE__*/React.createElement("div", {
-    className: "fixed left-0 right-0 top-0 z-50 bg-zinc-950 flex flex-col",
+    className: "fixed left-0 right-0 z-50 bg-zinc-950 flex flex-col",
     style: {
+      top: overlayTop + "px",
       height: overlayH ? overlayH + "px" : "100dvh"
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -2986,7 +3013,7 @@ function App() {
     className: "text-zinc-500 text-xl leading-none px-1"
   }, "✕")), /*#__PURE__*/React.createElement("div", {
     ref: chatScrollRef,
-    className: "flex-1 overflow-y-auto min-h-0 space-y-3 py-3"
+    className: "flex-1 overflow-y-auto overscroll-contain min-h-0 space-y-3 py-3"
   }, chatMsgs.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "text-sm text-zinc-400 leading-relaxed"
   }, "Tell me the session you want and I'll design it, then we can refine it together. I'll use your training context, so rehab work stays knee-aware.", /*#__PURE__*/React.createElement("div", {
@@ -3025,6 +3052,7 @@ function App() {
       paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))"
     }
   }, /*#__PURE__*/React.createElement("input", {
+    ref: bInputRef,
     value: bInput,
     onChange: e => setBInput(e.target.value),
     onKeyDown: e => {
