@@ -2534,6 +2534,7 @@ function App() {
         [class~="bg-[#141414]"]{background-color:#141414 !important}
         [class~="bg-[#1c1c1c]"]{background-color:#1c1c1c !important}
         [class~="bg-[#1f1f1f]"]{background-color:#1f1f1f !important}
+        [class~="bg-[#171717]"]{background-color:#171717 !important}
         [class~="bg-[#2a2a2a]"]{background-color:#2a2a2a !important}
         [class~="bg-[#7ED9A8]"]{background-color:#7ED9A8 !important}
         [class~="bg-[#A66CFF]"]{background-color:#A66CFF !important}
@@ -2870,11 +2871,11 @@ function App() {
     disabled: recLoading,
     className: "bebas w-full mb-5 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-2xl py-3.5 text-base tracking-[0.06em] disabled:opacity-50"
   }, recLoading ? "ASKING…" : "RECOMMEND WEIGHTS + REPS"), /*#__PURE__*/React.createElement("div", {
-    className: "space-y-3"
+    className: "space-y-4"
   }, draft.exercises.map(ex => {
     return /*#__PURE__*/React.createElement("div", {
       key: ex.id,
-      className: "mb-6"
+      className: "bg-[#171717] border border-white/10 rounded-2xl p-4"
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex items-start justify-between gap-2 mb-3"
     }, /*#__PURE__*/React.createElement("div", {
@@ -2905,7 +2906,8 @@ function App() {
       d: "M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"
     })), /*#__PURE__*/React.createElement("span", null, ex.recWhy))), /*#__PURE__*/React.createElement("button", {
       onClick: () => removeExercise(ex.id),
-      className: "text-white/30 text-sm px-1 shrink-0"
+      "aria-label": "Remove exercise",
+      className: "w-10 h-10 rounded-xl text-white/50 flex items-center justify-center text-xl leading-none shrink-0"
     }, "✕")), /*#__PURE__*/React.createElement("div", {
       className: "space-y-2"
     }, ex.sets.map((s, i) => {
