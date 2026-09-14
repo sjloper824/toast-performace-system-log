@@ -335,8 +335,8 @@ const DRAFTK_KEY = "toast:draftKey";
 const SEED_FLAG = "toast:seeded_v1";
 const CFG_KEY = "toast:cfg";
 const PRESETS_KEY = "toast:presets";
-const PUSH = "#e8552e";
-const PULL = "#3ea6ff";
+const PUSH = "#A66CFF";
+const PULL = "#FF6FA5";
 const today = () => {
   const d = new Date();
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -924,10 +924,10 @@ const G_PER = {
   g: 1,
   oz: 28.3495
 }; // weight units that can convert into each other
-const Z_BLUE = "rgba(56,189,248,0.45)",
-  Z_BLUE_DOT = "rgba(56,189,248,0.9)",
-  Z_AMBER = "rgba(251,191,36,0.45)",
-  Z_AMBER_DOT = "rgba(251,191,36,0.95)";
+const Z_BLUE = "rgba(255,111,165,0.35)",
+  Z_BLUE_DOT = "rgba(255,111,165,0.9)",
+  Z_AMBER = "rgba(166,108,255,0.35)",
+  Z_AMBER_DOT = "rgba(166,108,255,0.95)";
 function MacroBar({
   label,
   unit,
@@ -935,58 +935,38 @@ function MacroBar({
   light,
   heavy
 }) {
-  const hi = Math.max(heavy[1], light[1], consumed) * 1.08;
-  const pos = v => v / hi * 100;
+  const lo = Math.min(light[0], heavy[0]);
+  const hi = Math.max(light[1], heavy[1]);
+  const max = Math.max(hi, consumed) * 1.3;
+  const pos = v => Math.min(100, v / max * 100);
+  const inRange = consumed >= lo && consumed <= hi;
+  const fill = inRange ? "#7ED9A8" : consumed < lo ? "rgba(255,255,255,0.45)" : "#FF6FA5";
   return /*#__PURE__*/React.createElement("div", {
-    className: "mb-3.5"
+    className: "mb-4"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-baseline justify-between mb-1"
+    className: "flex items-baseline justify-between mb-1.5"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[11px] uppercase tracking-widest text-zinc-400"
+    className: "text-[11px] uppercase tracking-[0.1em] font-semibold text-white/60"
   }, label), /*#__PURE__*/React.createElement("span", {
-    className: "text-sm font-bold tabular-nums text-zinc-100"
+    className: "bebas text-[18px] text-white whitespace-nowrap flex-shrink-0"
   }, r0(consumed), /*#__PURE__*/React.createElement("span", {
-    className: "text-zinc-600 text-xs font-normal"
-  }, unit))), /*#__PURE__*/React.createElement("div", {
-    className: "relative h-3 bg-zinc-800 rounded-full overflow-hidden"
+    className: "text-white/40 text-[11px]"
+  }, unit, " / ", lo, "–", hi, unit))), /*#__PURE__*/React.createElement("div", {
+    className: "relative h-2 bg-[#141414] rounded-full overflow-hidden"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "absolute top-0 bottom-0 left-0",
+    className: "absolute top-0 bottom-0",
+    style: {
+      left: pos(lo) + "%",
+      width: pos(hi) - pos(lo) + "%",
+      background: "rgba(166,108,255,0.25)"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "absolute top-0 bottom-0 left-0 rounded-full",
     style: {
       width: pos(consumed) + "%",
-      background: "rgba(161,161,170,0.22)"
+      background: fill
     }
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "absolute top-0 bottom-0",
-    style: {
-      left: pos(light[0]) + "%",
-      width: pos(light[1]) - pos(light[0]) + "%",
-      background: Z_BLUE
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "absolute top-0 bottom-0",
-    style: {
-      left: pos(heavy[0]) + "%",
-      width: pos(heavy[1]) - pos(heavy[0]) + "%",
-      background: Z_AMBER
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "absolute top-0 bottom-0 w-[2px] bg-zinc-100",
-    style: {
-      left: "calc(" + pos(consumed) + "% - 1px)"
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-3 mt-1 text-[10px] tabular-nums text-zinc-500"
-  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
-    className: "inline-block w-2 h-2 rounded-sm align-middle mr-1",
-    style: {
-      background: Z_BLUE_DOT
-    }
-  }), "light ", light[0], "–", light[1], unit), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
-    className: "inline-block w-2 h-2 rounded-sm align-middle mr-1",
-    style: {
-      background: Z_AMBER_DOT
-    }
-  }), "heavy ", heavy[0], "–", heavy[1], unit)));
+  })));
 }
 
 // nutrition network helpers (no-op / fallback when no Sheet is configured, so preview works)
@@ -1304,14 +1284,14 @@ function Finisher({
   };
   if (value && !open) {
     return /*#__PURE__*/React.createElement("div", {
-      className: "bg-zinc-900 rounded-xl border border-zinc-800 p-3"
+      className: "bg-[#1f1f1f] rounded-xl border border-white/10 p-3"
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center justify-between"
     }, /*#__PURE__*/React.createElement("div", {
-      className: "font-bold text-[15px] text-zinc-100"
+      className: "font-bold text-[15px] text-white"
     }, "Push / Pull Ladder"), /*#__PURE__*/React.createElement("button", {
       onClick: reset,
-      className: "text-xs text-zinc-500 font-semibold"
+      className: "text-xs text-white/40 font-semibold"
     }, "redo")), /*#__PURE__*/React.createElement("div", {
       className: "flex gap-4 mt-1 text-sm tabular-nums"
     }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
@@ -1320,87 +1300,91 @@ function Finisher({
       },
       className: "font-black"
     }, value.totalPush), " ", /*#__PURE__*/React.createElement("span", {
-      className: "text-zinc-500 text-xs"
+      className: "text-white/40 text-xs"
     }, "push")), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
       style: {
         color: PULL
       },
       className: "font-black"
     }, value.totalPull), " ", /*#__PURE__*/React.createElement("span", {
-      className: "text-zinc-500 text-xs"
+      className: "text-white/40 text-xs"
     }, "pull")), /*#__PURE__*/React.createElement("span", {
-      className: "text-zinc-400"
+      className: "text-white/50"
     }, value.rounds ? value.rounds.length : 0, " rounds"), /*#__PURE__*/React.createElement("span", {
-      className: "text-zinc-400"
+      className: "text-white/50"
     }, fmtClock(value.seconds || 0))));
   }
   if (!open) {
     return /*#__PURE__*/React.createElement("button", {
       onClick: () => setOpen(true),
-      className: "w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 text-sm font-bold text-zinc-200"
+      className: "w-full bg-[#1f1f1f] border border-white/10 rounded-xl py-3 text-sm font-bold text-white/90"
     }, "Start Push / Pull Ladder", /*#__PURE__*/React.createElement("div", {
-      className: "text-[11px] font-normal text-zinc-500 mt-0.5"
+      className: "text-[11px] font-normal text-white/40 mt-0.5"
     }, "8 push → 3 pull, descend to failure"));
   }
   return /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 rounded-xl border p-3",
+    className: "bg-[#1f1f1f] rounded-2xl border p-4",
     style: {
       borderColor: accent
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-2"
+    className: "flex items-center justify-between mb-3"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40"
   }, "Round ", round), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2"
+    className: "flex items-center gap-3"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-lg font-black tabular-nums text-zinc-100"
+    className: "bebas text-[26px] tabular-nums text-white leading-none"
   }, fmtClock(seconds)), /*#__PURE__*/React.createElement("button", {
     onClick: () => setRunning(r => !r),
-    className: "text-[10px] uppercase tracking-wide border border-zinc-700 text-zinc-400 rounded px-2 py-1"
-  }, running ? "Pause" : seconds ? "Resume" : "Start"))), /*#__PURE__*/React.createElement("div", {
-    className: "text-center text-xl font-black mb-2",
+    className: "bebas bg-[#2a2a2a] border border-white/10 text-white rounded-lg px-4 py-2 text-[14px] tracking-[0.04em]"
+  }, running ? "PAUSE" : seconds ? "RESUME" : "START"))), /*#__PURE__*/React.createElement("div", {
+    className: "bebas text-center text-[26px] mb-3",
     style: {
       color: accent
     }
-  }, move === "push" ? "Push-ups" : "Pull-ups"), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-3 gap-2"
+  }, move === "push" ? "PUSH-UPS" : "PULL-UPS"), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-5 gap-2"
   }, Array.from({
-    length: 9
-  }, (_, i) => /*#__PURE__*/React.createElement("button", {
-    key: i,
-    onClick: () => setVal(i),
-    className: "rounded-lg py-3 text-2xl font-black border tabular-nums",
-    style: val === i ? {
+    length: 10
+  }, (_, i) => i + 1).map(n => /*#__PURE__*/React.createElement("button", {
+    key: n,
+    onClick: () => setVal(n),
+    className: "bebas rounded-2xl py-3.5 text-[26px] border tabular-nums",
+    style: val === n ? {
       background: accent,
-      color: "#0d0d0d",
+      color: "#141414",
       borderColor: accent
     } : {
-      background: "#1e1e1e",
-      color: "#eeeae2",
-      borderColor: "#2a2a2a"
+      background: "#141414",
+      color: "#ffffff",
+      borderColor: "rgba(255,255,255,0.08)"
     }
-  }, i))), /*#__PURE__*/React.createElement("button", {
+  }, n))), /*#__PURE__*/React.createElement("button", {
     onClick: logSwitch,
-    className: "w-full mt-3 rounded-lg py-3 font-black text-zinc-950 uppercase tracking-wide",
+    className: "bebas w-full mt-4 rounded-2xl py-4 text-[16px] text-[#141414] tracking-[0.04em]",
     style: {
       background: accent
     }
-  }, move === "push" ? "Log & switch to pull" : "Log & next round"), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-3 mt-2 text-sm tabular-nums justify-center text-zinc-400"
+  }, move === "push" ? "LOG & SWITCH TO PULL" : "LOG & NEXT ROUND"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2 mt-3 text-[15px] tabular-nums justify-center items-center"
   }, /*#__PURE__*/React.createElement("span", {
+    className: "bebas",
     style: {
       color: PUSH
     }
-  }, totalPush, " push"), /*#__PURE__*/React.createElement("span", {
+  }, totalPush, " PUSH"), /*#__PURE__*/React.createElement("span", {
+    className: "text-white/30"
+  }, "·"), /*#__PURE__*/React.createElement("span", {
+    className: "bebas",
     style: {
       color: PULL
     }
-  }, totalPull, " pull")), rounds.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "mt-2 max-h-24 overflow-y-auto text-xs text-zinc-500 space-y-0.5"
+  }, totalPull, " PULL")), rounds.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 max-h-24 overflow-y-auto text-xs text-white/40 space-y-0.5"
   }, [...rounds].reverse().map((r, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
-    className: "flex justify-between border-b border-zinc-800 pb-0.5"
+    className: "flex justify-between border-b border-white/10 pb-0.5"
   }, /*#__PURE__*/React.createElement("span", null, "R", r.round), /*#__PURE__*/React.createElement("span", {
     style: {
       color: PUSH
@@ -1410,16 +1394,14 @@ function Finisher({
       color: PULL
     }
   }, r.pull, " pull")))), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-2 mt-3"
+    className: "flex gap-2 mt-4"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: undo,
-    className: "flex-1 border border-zinc-800 text-zinc-500 rounded-lg py-2 text-xs uppercase tracking-wide"
-  }, "Undo"), /*#__PURE__*/React.createElement("button", {
+    className: "bebas flex-1 border border-white/15 text-white/60 rounded-xl py-3 text-[14px] tracking-[0.04em]"
+  }, "UNDO"), /*#__PURE__*/React.createElement("button", {
     onClick: finish,
-    className: "flex-1 bg-emerald-500 text-zinc-950 rounded-lg py-2 text-xs font-bold uppercase tracking-wide"
-  }, "Finish ladder")), /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-zinc-600 text-center mt-2"
-  }, "Progress is saved live — Finish or just Save the session."));
+    className: "bebas flex-1 bg-[#A66CFF] text-[#141414] rounded-xl py-3 text-[14px] tracking-[0.04em]"
+  }, "FINISH LADDER")));
 }
 
 // ---------- Weight trend (daily dots + 7-day moving average) ----------
@@ -1446,15 +1428,15 @@ function WeightTrend({
   const latest = s[s.length - 1].lb,
     delta = latest - s[0].lb;
   return /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3 mb-4"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-3 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-2"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40"
   }, "Weight trend"), /*#__PURE__*/React.createElement("span", {
-    className: "text-xs tabular-nums text-zinc-300"
+    className: "text-xs tabular-nums text-white/70"
   }, latest.toFixed(1), " lb ", /*#__PURE__*/React.createElement("span", {
-    className: delta <= 0 ? "text-emerald-400" : "text-orange-400"
+    className: delta <= 0 ? "text-[#7ED9A8]" : "text-[#FF6FA5]"
   }, delta <= 0 ? "▼" : "▲", Math.abs(delta).toFixed(1)))), /*#__PURE__*/React.createElement("svg", {
     viewBox: `0 0 ${W} ${H}`,
     preserveAspectRatio: "none",
@@ -1465,7 +1447,7 @@ function WeightTrend({
   }, /*#__PURE__*/React.createElement("path", {
     d: maPath,
     fill: "none",
-    stroke: "#fbbf24",
+    stroke: "#A66CFF",
     strokeWidth: "2"
   }), s.map((p, i) => /*#__PURE__*/React.createElement("circle", {
     key: i,
@@ -1474,7 +1456,7 @@ function WeightTrend({
     r: "1.8",
     fill: "#71717a"
   }))), /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-zinc-600 mt-1"
+    className: "text-[10px] text-white/30 mt-1"
   }, "Dots = daily weigh-ins · amber line = 7-day trend"));
 }
 
@@ -1509,7 +1491,7 @@ function WeightSpark({
   }, /*#__PURE__*/React.createElement("path", {
     d: maPath,
     fill: "none",
-    stroke: "#fbbf24",
+    stroke: "#A66CFF",
     strokeWidth: "2"
   }), s.map((p, i) => /*#__PURE__*/React.createElement("circle", {
     key: i,
@@ -1526,86 +1508,86 @@ function TrainingFocus({
   weights
 }) {
   const d = data || {};
-  const tone = t => t === "ok" ? "text-emerald-400" : t === "under" ? "text-orange-400" : "text-zinc-300";
+  const tone = t => t === "ok" ? "text-[#7ED9A8]" : t === "under" ? "text-[#FF6FA5]" : "text-white/70";
   const vs = v => v ? /*#__PURE__*/React.createElement("span", null, "vs last: ", v.replace(/→.*/, "→"), /*#__PURE__*/React.createElement("span", {
-    className: "text-emerald-400 font-semibold"
+    className: "text-[#7ED9A8] font-semibold"
   }, v.split("→")[1] || "")) : null;
-  const box = "mt-2 bg-amber-400/10 border border-amber-400/20 rounded-md px-3 py-2 text-[13px] text-amber-300 leading-relaxed";
-  const lbl = "text-[10px] uppercase tracking-widest text-zinc-500 mb-2";
+  const box = "mt-2 bg-[#A66CFF]/10 border border-[#A66CFF]/20 rounded-md px-3 py-2 text-[13px] text-[#A66CFF] leading-relaxed";
+  const lbl = "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40 mb-2";
   return /*#__PURE__*/React.createElement("div", null, (d.yesterday || d.today) && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3 mb-4 flex gap-4 text-sm"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-3 mb-4 flex gap-4 text-sm"
   }, d.yesterday && /*#__PURE__*/React.createElement("div", {
     className: "flex-1 min-w-0"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40"
   }, "Yesterday"), /*#__PURE__*/React.createElement("div", {
-    className: "text-zinc-200 truncate"
+    className: "text-white/90 truncate"
   }, d.yesterday)), d.today && /*#__PURE__*/React.createElement("div", {
     className: "flex-1 min-w-0"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40"
   }, "Today"), /*#__PURE__*/React.createElement("div", {
-    className: "text-amber-400 font-semibold truncate"
+    className: "text-[#A66CFF] font-semibold truncate"
   }, d.today))), d.focus && d.focus.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-amber-400/30 rounded-xl p-4 mb-4"
+    className: "bg-[#1f1f1f] border border-[#A66CFF]/30 rounded-xl p-4 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: lbl
   }, "Today's focus"), /*#__PURE__*/React.createElement("ul", {
     className: "space-y-2"
   }, d.focus.map((f, i) => /*#__PURE__*/React.createElement("li", {
     key: i,
-    className: "flex gap-2 text-sm text-zinc-200 leading-relaxed"
+    className: "flex gap-2 text-sm text-white/90 leading-relaxed"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-amber-400 shrink-0"
+    className: "text-[#A66CFF] shrink-0"
   }, "›"), /*#__PURE__*/React.createElement("span", null, f))))), d.workout && d.workout.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-4 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: lbl
   }, "Yesterday's workout"), d.workout.map((ex, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
-    className: `py-3 ${i ? "border-t border-zinc-800" : ""}`
+    className: `py-3 ${i ? "border-t border-white/10" : ""}`
   }, /*#__PURE__*/React.createElement("div", {
-    className: "font-bold text-[15px] text-zinc-100"
+    className: "font-bold text-[15px] text-white"
   }, ex.name), ex.sets && ex.sets.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "text-sm text-zinc-200 mt-1"
+    className: "text-sm text-white/90 mt-1"
   }, ex.sets.map((sv, j) => /*#__PURE__*/React.createElement("span", {
     key: j
   }, j ? /*#__PURE__*/React.createElement("span", {
-    className: "text-zinc-600"
+    className: "text-white/30"
   }, " · ") : null, /*#__PURE__*/React.createElement("span", {
-    className: ex.pr && ex.pr.indexOf(j) > -1 ? "text-emerald-400 font-bold" : ""
+    className: ex.pr && ex.pr.indexOf(j) > -1 ? "text-[#7ED9A8] font-bold" : ""
   }, sv)))), ex.vs && /*#__PURE__*/React.createElement("div", {
-    className: "text-[12px] text-zinc-500 mt-1"
+    className: "text-[12px] text-white/40 mt-1"
   }, vs(ex.vs)), ex.rec && /*#__PURE__*/React.createElement("div", {
     className: box
   }, ex.rec))), d.ladder && /*#__PURE__*/React.createElement("div", {
-    className: "py-3 border-t border-zinc-800"
+    className: "py-3 border-t border-white/10"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "font-bold text-[15px] text-zinc-100"
+    className: "font-bold text-[15px] text-white"
   }, "Push / Pull Ladder"), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-5 mt-1 text-sm"
   }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
     className: "text-lg font-black",
     style: {
-      color: "#e8552e"
+      color: "#A66CFF"
     }
   }, d.ladder.push), " ", /*#__PURE__*/React.createElement("span", {
-    className: "text-zinc-500"
+    className: "text-white/40"
   }, "push")), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
     className: "text-lg font-black",
     style: {
-      color: "#3ea6ff"
+      color: "#FF6FA5"
     }
   }, d.ladder.pull), " ", /*#__PURE__*/React.createElement("span", {
-    className: "text-zinc-500"
+    className: "text-white/40"
   }, "pull"))), d.ladder.vs && /*#__PURE__*/React.createElement("div", {
-    className: "text-[12px] text-zinc-500 mt-1"
+    className: "text-[12px] text-white/40 mt-1"
   }, vs(d.ladder.vs)), d.ladder.rec && /*#__PURE__*/React.createElement("div", {
     className: box
   }, d.ladder.rec)), d.dynamic && /*#__PURE__*/React.createElement("div", {
-    className: "pt-3 border-t border-zinc-800 text-[13px] text-zinc-500"
+    className: "pt-3 border-t border-white/10 text-[13px] text-white/40"
   }, d.dynamic)), (d.weight || weights && weights.length > 1) && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-4 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: lbl
   }, "Weight"), d.weight && /*#__PURE__*/React.createElement("div", {
@@ -1613,37 +1595,37 @@ function TrainingFocus({
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex-1"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] text-zinc-500"
+    className: "text-[11px] text-white/40"
   }, "Yesterday"), /*#__PURE__*/React.createElement("div", {
     className: "text-lg font-black tabular-nums"
   }, d.weight.yesterday, " ", /*#__PURE__*/React.createElement("span", {
-    className: "text-xs text-zinc-500 font-normal"
+    className: "text-xs text-white/40 font-normal"
   }, "lb"))), /*#__PURE__*/React.createElement("div", {
     className: "flex-1"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] text-zinc-500"
+    className: "text-[11px] text-white/40"
   }, "14-day avg"), /*#__PURE__*/React.createElement("div", {
     className: "text-lg font-black tabular-nums"
   }, d.weight.avg14, " ", /*#__PURE__*/React.createElement("span", {
-    className: "text-xs text-zinc-500 font-normal"
+    className: "text-xs text-white/40 font-normal"
   }, "lb"))), /*#__PURE__*/React.createElement("div", {
     className: "flex-1"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] text-zinc-500"
+    className: "text-[11px] text-white/40"
   }, "Trend"), /*#__PURE__*/React.createElement("div", {
-    className: "text-sm font-bold text-emerald-400"
+    className: "text-sm font-bold text-[#7ED9A8]"
   }, d.weight.trend), d.weight.target && /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-zinc-600"
+    className: "text-[10px] text-white/30"
   }, "target ", d.weight.target))), /*#__PURE__*/React.createElement(WeightSpark, {
     weights: weights
   })), d.nutrition && d.nutrition.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-4 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: lbl
   }, "Yesterday's Nutrition"), /*#__PURE__*/React.createElement("table", {
     className: "w-full text-sm"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40"
   }, /*#__PURE__*/React.createElement("th", {
     className: "text-left font-normal pb-1"
   }), /*#__PURE__*/React.createElement("th", {
@@ -1654,13 +1636,13 @@ function TrainingFocus({
     className: "text-left font-normal pb-1"
   }, "Diff"))), /*#__PURE__*/React.createElement("tbody", null, d.nutrition.map((r, i) => /*#__PURE__*/React.createElement("tr", {
     key: i,
-    className: "border-t border-zinc-800"
+    className: "border-t border-white/10"
   }, /*#__PURE__*/React.createElement("td", {
-    className: "py-1.5 text-zinc-300"
+    className: "py-1.5 text-white/70"
   }, r.k), /*#__PURE__*/React.createElement("td", {
-    className: "py-1.5 tabular-nums text-zinc-100"
+    className: "py-1.5 tabular-nums text-white"
   }, r.total), /*#__PURE__*/React.createElement("td", {
-    className: "py-1.5 tabular-nums text-zinc-500"
+    className: "py-1.5 tabular-nums text-white/40"
   }, r.target), /*#__PURE__*/React.createElement("td", {
     className: `py-1.5 font-semibold ${tone(r.tone)}`
   }, r.diff))))), d.nutritionTakeaway && /*#__PURE__*/React.createElement("div", {
@@ -1674,9 +1656,9 @@ function Dashboard({
 }) {
   if (!sessions.length) {
     return /*#__PURE__*/React.createElement("div", {
-      className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center"
+      className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-6 text-center"
     }, /*#__PURE__*/React.createElement("div", {
-      className: "text-zinc-400 text-sm"
+      className: "text-white/50 text-sm"
     }, "No sessions logged yet — your dashboard fills in after your first save."));
   }
   const chronological = [...sessions].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.savedAt || 0) - (b.savedAt || 0));
@@ -1761,64 +1743,64 @@ function Dashboard({
   return /*#__PURE__*/React.createElement("div", {
     className: "space-y-4"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-3"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40 mb-2"
   }, "Consistency"), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-4 mb-3"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "text-2xl font-black text-amber-400 tabular-nums"
+    className: "text-2xl font-black text-[#A66CFF] tabular-nums"
   }, last7), /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-zinc-500 uppercase tracking-wide"
+    className: "text-[10px] text-white/40 uppercase tracking-wide"
   }, "last 7 days")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "text-2xl font-black text-amber-400 tabular-nums"
+    className: "text-2xl font-black text-[#A66CFF] tabular-nums"
   }, last30), /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-zinc-500 uppercase tracking-wide"
+    className: "text-[10px] text-white/40 uppercase tracking-wide"
   }, "last 30 days")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "text-2xl font-black text-amber-400 tabular-nums"
+    className: "text-2xl font-black text-[#A66CFF] tabular-nums"
   }, sessions.length), /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-zinc-500 uppercase tracking-wide"
+    className: "text-[10px] text-white/40 uppercase tracking-wide"
   }, "all time"))), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-1"
   }, days14.map((d, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
-    className: `flex-1 h-3 rounded-sm ${d.hit ? "bg-amber-400" : "bg-zinc-800"}`,
+    className: `flex-1 h-3 rounded-sm ${d.hit ? "bg-[#A66CFF]" : "bg-[#2a2a2a]"}`,
     title: d.iso
   }))), /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-zinc-600 mt-1"
+    className: "text-[10px] text-white/30 mt-1"
   }, "last 14 days")), feelPts.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-3"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40 mb-2"
   }, "Overall feel (last ", feelPts.length, ")"), /*#__PURE__*/React.createElement(MiniBars, {
     points: feelPts,
     max: 5,
-    color: "#fbbf24"
+    color: "#A66CFF"
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-1.5 mt-1"
   }, feelPts.map((p, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
-    className: "flex-1 text-center text-[9px] text-zinc-600 tabular-nums"
+    className: "flex-1 text-center text-[9px] text-white/30 tabular-nums"
   }, p.value)))), topExercises.map(name => {
     const pts = exerciseHistory(name);
     if (pts.length < 2) return null;
     return /*#__PURE__*/React.createElement("div", {
       key: name,
-      className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3"
+      className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-3"
     }, /*#__PURE__*/React.createElement("div", {
-      className: "text-[13px] font-bold text-zinc-200 mb-2"
+      className: "text-[13px] font-bold text-white/90 mb-2"
     }, name), /*#__PURE__*/React.createElement(MiniBars, {
       points: pts,
-      color: "#e8552e"
+      color: "#A66CFF"
     }), /*#__PURE__*/React.createElement("div", {
       className: "flex gap-1.5 mt-1"
     }, pts.map((p, i) => /*#__PURE__*/React.createElement("div", {
       key: i,
       className: "flex-1 text-center"
     }, /*#__PURE__*/React.createElement("div", {
-      className: "text-[10px] font-bold text-zinc-300 tabular-nums"
+      className: "text-[10px] font-bold text-white/70 tabular-nums"
     }, p.label), /*#__PURE__*/React.createElement("div", {
-      className: "text-[8px] text-zinc-600"
+      className: "text-[8px] text-white/30"
     }, p.sub)))));
   }));
 }
@@ -2537,24 +2519,87 @@ function App() {
   const totalSets = draft.exercises.reduce((a, e) => a + e.sets.length, 0);
   const pendingCount = sessions.filter(s => !s.synced).length;
   return /*#__PURE__*/React.createElement("div", {
-    className: "min-h-screen bg-zinc-950 text-zinc-100",
+    className: "min-h-screen bg-[#141414] text-white",
     style: {
-      fontFamily: "ui-sans-serif,system-ui,-apple-system,sans-serif"
+      fontFamily: "'Inter',ui-sans-serif,system-ui,-apple-system,sans-serif"
     }
-  }, /*#__PURE__*/React.createElement("style", null, `input, textarea, select { font-size:16px; } input[type="date"]{ -webkit-appearance:none; appearance:none; }`), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("style", null, `
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family:'Inter',sans-serif; background:#141414; }
+        .font-black, .font-extrabold { font-family:'Bebas Neue',sans-serif !important; font-weight:400 !important; letter-spacing:0.03em; }
+        .bebas { font-family:'Bebas Neue',sans-serif !important; font-weight:400 !important; letter-spacing:0.04em; }
+        input, textarea, select { font-size:16px; font-family:'Inter',sans-serif; }
+        input[type="date"]{ -webkit-appearance:none; appearance:none; }
+        /* custom palette fallbacks (attribute selectors, no JS-escape issues) */
+        [class~="bg-[#141414]"]{background-color:#141414 !important}
+        [class~="bg-[#1c1c1c]"]{background-color:#1c1c1c !important}
+        [class~="bg-[#1f1f1f]"]{background-color:#1f1f1f !important}
+        [class~="bg-[#2a2a2a]"]{background-color:#2a2a2a !important}
+        [class~="bg-[#7ED9A8]"]{background-color:#7ED9A8 !important}
+        [class~="bg-[#A66CFF]"]{background-color:#A66CFF !important}
+        [class~="bg-[#A66CFF]/10"]{background-color:rgba(166,108,255,0.1) !important}
+        [class~="bg-[#A66CFF]/15"]{background-color:rgba(166,108,255,0.15) !important}
+        [class~="bg-[#A66CFF]/[0.08]"]{background-color:rgba(166,108,255,0.08) !important}
+        [class~="bg-[#A66CFF]/[0.12]"]{background-color:rgba(166,108,255,0.12) !important}
+        [class~="border-[#A66CFF]"]{border-color:#A66CFF !important}
+        [class~="border-[#A66CFF]/20"]{border-color:rgba(166,108,255,0.2) !important}
+        [class~="border-[#A66CFF]/30"]{border-color:rgba(166,108,255,0.3) !important}
+        [class~="text-[#141414]"]{color:#141414 !important}
+        [class~="text-[#7ED9A8]"]{color:#7ED9A8 !important}
+        [class~="text-[#A66CFF]"]{color:#A66CFF !important}
+        [class~="text-[#A66CFF]/70"]{color:rgba(166,108,255,0.7) !important}
+        [class~="text-[#FF6FA5]"]{color:#FF6FA5 !important}
+        [class~="border-[1.5px]"]{border-width:1.5px;border-style:solid}
+        [class~="border-l-[3px]"]{border-left-width:3px;border-left-style:solid}
+        [class~="bg-white/[0.06]"]{background-color:rgba(255,255,255,0.06) !important}
+        /* arbitrary sizing fallbacks */
+        [class~="gap-[4px]"]{gap:4px !important}
+        [class~="h-[30px]"]{height:30px !important}
+        [class~="leading-[0.9]"]{line-height:0.9 !important}
+        [class~="max-w-[290px]"]{max-width:290px !important}
+        [class~="max-w-[85%]"]{max-width:85% !important}
+        [class~="max-w-[90%]"]{max-width:90% !important}
+        [class~="mt-[1px]"]{margin-top:1px !important}
+        [class~="rounded-[10px]"]{border-radius:10px !important}
+        [class~="rounded-[14px]"]{border-radius:14px !important}
+        [class~="rounded-[18px]"]{border-radius:18px !important}
+        [class~="text-[10px]"]{font-size:10px !important}
+        [class~="text-[11px]"]{font-size:11px !important}
+        [class~="text-[12px]"]{font-size:12px !important}
+        [class~="text-[13px]"]{font-size:13px !important}
+        [class~="text-[14px]"]{font-size:14px !important}
+        [class~="text-[15px]"]{font-size:15px !important}
+        [class~="text-[16px]"]{font-size:16px !important}
+        [class~="text-[17px]"]{font-size:17px !important}
+        [class~="text-[18px]"]{font-size:18px !important}
+        [class~="text-[22px]"]{font-size:22px !important}
+        [class~="text-[26px]"]{font-size:26px !important}
+        [class~="text-[38px]"]{font-size:38px !important}
+        [class~="text-[40px]"]{font-size:40px !important}
+        [class~="text-[8px]"]{font-size:8px !important}
+        [class~="text-[9px]"]{font-size:9px !important}
+        [class~="tracking-[0.02em]"]{letter-spacing:0.02em !important}
+        [class~="tracking-[0.03em]"]{letter-spacing:0.03em !important}
+        [class~="tracking-[0.04em]"]{letter-spacing:0.04em !important}
+        [class~="tracking-[0.05em]"]{letter-spacing:0.05em !important}
+        [class~="tracking-[0.06em]"]{letter-spacing:0.06em !important}
+        [class~="tracking-[0.12em]"]{letter-spacing:0.12em !important}
+        [class~="tracking-[0.14em]"]{letter-spacing:0.14em !important}
+        [class~="tracking-[0.1em]"]{letter-spacing:0.1em !important}
+        [class~="w-[30px]"]{width:30px !important}
+        [class~="w-[76%]"]{width:76% !important}
+      `), /*#__PURE__*/React.createElement("div", {
     className: `max-w-md mx-auto px-4 pb-10 pt-5 ${builderOpen ? "hidden" : ""}`,
     style: {
       paddingTop: "max(1.25rem, env(safe-area-inset-top))",
       paddingBottom: "max(2.5rem, env(safe-area-inset-bottom))"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-start justify-between mb-4"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-start gap-3 min-w-0"
+    className: "flex items-center justify-between mb-5 pb-3 border-b border-white/10"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setMenuOpen(true),
     "aria-label": "Menu",
-    className: "w-9 h-9 shrink-0 rounded-lg border border-zinc-800 text-zinc-300 flex flex-col items-center justify-center gap-[3px]"
+    className: "w-9 h-9 shrink-0 rounded-lg bg-white/[0.06] text-white flex flex-col items-center justify-center gap-[4px]"
   }, /*#__PURE__*/React.createElement("span", {
     className: "block w-4 h-0.5 bg-current rounded"
   }), /*#__PURE__*/React.createElement("span", {
@@ -2562,54 +2607,50 @@ function App() {
   }), /*#__PURE__*/React.createElement("span", {
     className: "block w-4 h-0.5 bg-current rounded"
   })), /*#__PURE__*/React.createElement("div", {
-    className: "min-w-0"
+    className: "text-right min-w-0"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-amber-400 font-bold tracking-[0.2em] text-xs uppercase"
-  }, "Toast Performance System"), /*#__PURE__*/React.createElement("div", {
-    className: "text-2xl font-black tracking-tight leading-none mt-1 truncate"
-  }, view === "dashboard" ? "Dashboard" : view === "settings" ? "Settings" : view === "nutrition" ? "Nutrition" : "Workouts")))), menuOpen && /*#__PURE__*/React.createElement("div", {
+    className: "bebas text-[#A66CFF] text-[11px] tracking-[0.14em]"
+  }, "TOAST PERFORMANCE SYSTEM"), /*#__PURE__*/React.createElement("div", {
+    className: "bebas text-xl tracking-[0.04em] uppercase text-white leading-none mt-0.5 truncate"
+  }, view === "settings" ? "Settings" : view === "nutrition" ? "Nutrition" : "Workouts"))), menuOpen && /*#__PURE__*/React.createElement("div", {
     className: "fixed inset-0 z-50",
     onClick: () => setMenuOpen(false)
   }, /*#__PURE__*/React.createElement("div", {
     className: "absolute inset-0 bg-black/60"
   }), /*#__PURE__*/React.createElement("div", {
-    className: "absolute top-0 left-0 h-full w-64 max-w-[80%] bg-zinc-900 border-r border-zinc-800 p-4 flex flex-col",
+    className: "absolute top-0 left-0 h-full w-[76%] max-w-[290px] bg-[#1c1c1c] pt-16 pb-5 flex flex-col shadow-[8px_0_30px_rgba(0,0,0,0.5)]",
     onClick: e => e.stopPropagation(),
     style: {
-      paddingTop: "max(1rem, env(safe-area-inset-top))"
+      paddingTop: "max(4rem, calc(env(safe-area-inset-top) + 3rem))"
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-5"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-amber-400 font-bold tracking-[0.2em] text-xs uppercase"
-  }, "Toast Performance System"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setMenuOpen(false),
     "aria-label": "Close menu",
-    className: "text-zinc-500 text-xl leading-none px-1"
-  }, "✕")), [{
-    key: "dashboard",
-    label: "Dashboard"
-  }, {
+    className: "absolute top-4 right-4 text-white/40 text-xl leading-none px-1",
+    style: {
+      top: "max(1rem, env(safe-area-inset-top))"
+    }
+  }, "✕"), [{
     key: "workouts",
-    label: "Workouts"
+    label: "WORKOUTS"
   }, {
     key: "nutrition",
-    label: "Nutrition"
+    label: "NUTRITION"
   }, {
     key: "settings",
-    label: "Settings"
+    label: "SETTINGS"
   }].map(item => /*#__PURE__*/React.createElement("button", {
     key: item.key,
     onClick: () => go(item.key),
-    className: `block w-full text-left px-3 py-3 rounded-lg mb-1 text-[15px] font-semibold ${view === item.key ? "bg-amber-400/10 text-amber-400 border border-amber-400/40" : "text-zinc-300 border border-transparent"}`
+    className: `bebas block w-full text-left px-6 py-2.5 text-[22px] tracking-[0.04em] border-l-[3px] ${view === item.key ? "text-[#A66CFF] border-[#A66CFF] bg-[#A66CFF]/[0.12]" : "text-white/50 border-transparent"}`
   }, item.label)))), view === "settings" && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-3 mb-4"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-3 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-2"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40"
   }, "Settings & Sync"), /*#__PURE__*/React.createElement("span", {
-    className: `text-[10px] font-bold ${cfg.url ? pendingCount ? "text-amber-400" : "text-emerald-400" : "text-zinc-600"}`
+    className: `text-[10px] font-bold ${cfg.url ? pendingCount ? "text-[#A66CFF]" : "text-[#7ED9A8]" : "text-white/30"}`
   }, cfg.url ? pendingCount ? `${pendingCount} pending` : "All synced ✓" : "Sheet not connected")), /*#__PURE__*/React.createElement("input", {
     placeholder: "Google Apps Script Web app URL",
     value: cfg.url,
@@ -2617,7 +2658,7 @@ function App() {
       ...cfg,
       url: e.target.value
     }),
-    className: "w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none mb-2"
+    className: "w-full bg-[#141414] border border-white/10 rounded-md px-2 py-1.5 text-xs text-white/70 outline-none mb-2"
   }), /*#__PURE__*/React.createElement("input", {
     placeholder: "Token (must match Code.gs)",
     value: cfg.token,
@@ -2625,26 +2666,26 @@ function App() {
       ...cfg,
       token: e.target.value
     }),
-    className: "w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none"
+    className: "w-full bg-[#141414] border border-white/10 rounded-md px-2 py-1.5 text-xs text-white/70 outline-none"
   }), /*#__PURE__*/React.createElement("button", {
     onClick: resyncAll,
-    className: "w-full mt-2 bg-amber-400 text-zinc-950 rounded-md py-2 text-xs font-bold"
+    className: "w-full mt-2 bg-[#A66CFF] text-[#141414] rounded-md py-2 text-xs font-bold"
   }, "Sync pending to Sheet"), /*#__PURE__*/React.createElement("div", {
-    className: "border-t border-zinc-800 mt-3 pt-3 flex gap-2"
+    className: "border-t border-white/10 mt-3 pt-3 flex gap-2"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: copyLast,
-    className: "flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold"
+    className: "flex-1 border border-white/15 text-white/70 rounded-md py-2 text-xs font-semibold"
   }, "Copy last"), /*#__PURE__*/React.createElement("button", {
     onClick: exportCSV,
     disabled: !sessions.length,
-    className: "flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold disabled:opacity-40"
+    className: "flex-1 border border-white/15 text-white/70 rounded-md py-2 text-xs font-semibold disabled:opacity-40"
   }, "Export CSV"), /*#__PURE__*/React.createElement("button", {
     onClick: exportJSON,
     disabled: !sessions.length,
-    className: "flex-1 border border-zinc-700 text-zinc-300 rounded-md py-2 text-xs font-semibold disabled:opacity-40"
+    className: "flex-1 border border-white/15 text-white/70 rounded-md py-2 text-xs font-semibold disabled:opacity-40"
   }, "Backup")), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowRestore(v => !v),
-    className: "w-full mt-2 text-[11px] text-zinc-500 font-semibold"
+    className: "w-full mt-2 text-[11px] text-white/40 font-semibold"
   }, showRestore ? "Hide restore" : "Restore from backup"), showRestore && /*#__PURE__*/React.createElement("div", {
     className: "mt-1"
   }, /*#__PURE__*/React.createElement("textarea", {
@@ -2652,60 +2693,30 @@ function App() {
     value: restoreText,
     onChange: e => setRestoreText(e.target.value),
     placeholder: "Paste a JSON backup…",
-    className: "w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none resize-none"
+    className: "w-full bg-[#141414] border border-white/10 rounded-md px-2 py-1.5 text-xs text-white/70 outline-none resize-none"
   }), /*#__PURE__*/React.createElement("button", {
     onClick: doRestore,
-    className: "w-full mt-1 bg-zinc-800 text-zinc-100 rounded-md py-2 text-xs font-bold"
-  }, "Load backup (replaces current)"))), view === "dashboard" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-3"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
-  }, "From your Sheet"), /*#__PURE__*/React.createElement("button", {
-    onClick: loadDashboard,
-    className: "text-xs text-amber-400 font-semibold"
-  }, dashLoading ? "Loading…" : "Refresh")), dashError && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-400"
-  }, dashError), !dashError && dashLoading && !dashSessions && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center text-sm text-zinc-500"
-  }, "Loading your training history…"), !dashError && dashRecap && dashRecap.kind === "json" && dashRecap.recap && /*#__PURE__*/React.createElement(TrainingFocus, {
-    data: dashRecap.recap,
-    weights: dashWeights || []
-  }), !dashError && dashRecap && dashRecap.kind !== "json" && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-amber-400/30 rounded-xl p-4 mb-4"
+    className: "w-full mt-1 bg-[#2a2a2a] text-white rounded-md py-2 text-xs font-bold"
+  }, "Load backup (replaces current)"))), view === "nutrition" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-4 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-2"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-amber-400 font-bold"
-  }, "Daily Recap"), /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] text-zinc-500 tabular-nums"
-  }, dashRecap.date)), /*#__PURE__*/React.createElement("div", {
-    className: "text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed"
-  }, dashRecap.text)), !dashError && (!dashRecap || dashRecap.kind !== "json") && dashWeights && dashWeights.length > 1 && /*#__PURE__*/React.createElement(WeightTrend, {
-    weights: dashWeights
-  }), !dashError && (!dashRecap || dashRecap.kind !== "json") && dashSessions && dashSessions.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
-  }, "Progress"), !dashError && (!dashRecap || dashRecap.kind !== "json") && dashSessions && /*#__PURE__*/React.createElement(Dashboard, {
-    sessions: dashSessions
-  })), view === "nutrition" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-2"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40"
   }, "Morning weigh-in"), wtTrend && /*#__PURE__*/React.createElement("span", {
-    className: "text-[11px] tabular-nums text-zinc-400"
+    className: "text-[11px] tabular-nums text-white/50"
   }, "7-day ", wtTrend.rAvg.toFixed(1), " lb", /*#__PURE__*/React.createElement("span", {
-    className: wtTrend.delta <= 0 ? "text-emerald-400 ml-1.5" : "text-orange-400 ml-1.5"
+    className: wtTrend.delta <= 0 ? "text-[#7ED9A8] ml-1.5" : "text-[#FF6FA5] ml-1.5"
   }, wtTrend.delta <= 0 ? "▼" : "▲", " ", Math.abs(wtTrend.delta).toFixed(1)))), wtToday ? /*#__PURE__*/React.createElement("div", {
     className: "flex items-baseline gap-2"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-3xl font-black text-zinc-100 tabular-nums"
+    className: "bebas text-[38px] leading-none text-white tabular-nums"
   }, wtToday.lb), /*#__PURE__*/React.createElement("span", {
-    className: "text-zinc-500 text-sm"
+    className: "text-white/40 text-sm"
   }, "lb today"), /*#__PURE__*/React.createElement("button", {
     onClick: editWeightToday,
-    className: "ml-auto text-xs text-amber-400 font-semibold"
-  }, "edit")) : /*#__PURE__*/React.createElement("div", {
+    className: "bebas ml-auto text-base tracking-[0.05em] text-[#A66CFF]"
+  }, "EDIT")) : /*#__PURE__*/React.createElement("div", {
     className: "flex gap-2"
   }, /*#__PURE__*/React.createElement("input", {
     inputMode: "decimal",
@@ -2715,14 +2726,14 @@ function App() {
       if (e.key === "Enter") logWeight();
     },
     placeholder: "today's weight, lb",
-    className: "flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2.5 text-sm text-zinc-100 tabular-nums outline-none"
+    className: "flex-1 min-w-0 bg-[#141414] border border-[#A66CFF]/30 rounded-xl px-3 py-3 text-sm text-white tabular-nums outline-none"
   }), /*#__PURE__*/React.createElement("button", {
     onClick: logWeight,
-    className: "bg-amber-400 text-zinc-950 font-bold rounded-md px-4 text-sm"
-  }, "Log")), /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-zinc-600 mt-1.5"
+    className: "bebas bg-[#A66CFF] text-[#141414] rounded-xl px-5 text-base tracking-[0.04em]"
+  }, "LOG")), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-white/30 mt-1.5"
   }, "Trend chart is on your Dashboard.")), /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-4 mb-4"
   }, NUT_MACROS.map(m => /*#__PURE__*/React.createElement(MacroBar, {
     key: m.key,
     label: m.label,
@@ -2731,24 +2742,24 @@ function App() {
     light: m.light,
     heavy: m.heavy
   })), /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-zinc-600 mt-1"
-  }, "White line = today's total. Blue = easy-day range, amber = hard-day range.")), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-white/30 mt-1"
+  }, "Shaded zone = target range for the day.")), /*#__PURE__*/React.createElement("div", {
     className: "mb-4"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
-  }, "Quick add — your foods"), /*#__PURE__*/React.createElement("div", {
+    className: "bebas text-[14px] tracking-[0.1em] text-white/40 mb-2.5"
+  }, "QUICK ADD — YOUR FOODS"), /*#__PURE__*/React.createElement("div", {
     className: "flex flex-wrap gap-2"
   }, sortedFoods.map(f => /*#__PURE__*/React.createElement("button", {
     key: f.name,
     onClick: () => addFood(f),
-    className: "bg-zinc-900 border border-zinc-800 rounded-full pl-3 pr-2.5 py-1.5 text-sm text-zinc-200 active:bg-zinc-800"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-full px-4 py-2.5 text-[15px] text-white active:bg-[#2a2a2a]"
   }, f.name, /*#__PURE__*/React.createElement("span", {
-    className: "text-zinc-500 text-xs ml-1.5"
+    className: "text-white/35 text-[13px] ml-2"
   }, f.cal))))), /*#__PURE__*/React.createElement("div", {
     className: "mb-4"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500 mb-2"
-  }, "Describe a meal"), /*#__PURE__*/React.createElement("div", {
+    className: "bebas text-[14px] tracking-[0.1em] text-white/40 mb-2.5"
+  }, "DESCRIBE A MEAL"), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-2"
   }, /*#__PURE__*/React.createElement("input", {
     value: mealText,
@@ -2757,66 +2768,66 @@ function App() {
       if (e.key === "Enter") logMeal();
     },
     placeholder: "e.g. chicken burrito bowl with rice & beans",
-    className: "flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2.5 text-sm text-zinc-100 outline-none"
+    className: "flex-1 min-w-0 bg-[#1f1f1f] border border-white/10 rounded-xl px-3.5 py-3 text-sm text-white outline-none"
   }), /*#__PURE__*/React.createElement("button", {
     onClick: logMeal,
     disabled: estLoading,
-    className: "bg-amber-400 text-zinc-950 font-bold rounded-md px-4 text-sm disabled:opacity-50"
-  }, estLoading ? "…" : "Log")), /*#__PURE__*/React.createElement("div", {
-    className: "text-[10px] text-zinc-600 mt-1.5"
+    className: "bebas bg-[#A66CFF] text-[#141414] rounded-xl px-5 text-base tracking-[0.04em] disabled:opacity-50"
+  }, estLoading ? "…" : "LOG")), /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] text-white/30 mt-1.5"
   }, cfg.url ? "Claude estimates the macros." : "Connect your Sheet in Settings for Claude estimates.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-2"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
-  }, "Today"), mealLog.length > 0 && /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] text-zinc-500 tabular-nums"
+    className: "bebas text-[14px] tracking-[0.1em] text-white/40"
+  }, "TODAY"), mealLog.length > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] text-white/40 tabular-nums"
   }, mealLog.length, " item", mealLog.length > 1 ? "s" : "")), mealLog.length === 0 && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center text-sm text-zinc-500"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-6 text-center text-sm text-white/40"
   }, "Nothing logged yet — tap a food or describe a meal."), /*#__PURE__*/React.createElement("div", {
     className: "space-y-2"
   }, mealLog.map(e => {
     const editing = mEditId === e.id;
     return /*#__PURE__*/React.createElement("div", {
       key: e.id,
-      className: "bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5"
+      className: "bg-[#1f1f1f] rounded-[14px] px-3.5 py-3 border-l-[3px] border-[#A66CFF]/35"
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-3"
     }, /*#__PURE__*/React.createElement("div", {
       className: "min-w-0 flex-1"
     }, /*#__PURE__*/React.createElement("div", {
-      className: "text-sm text-zinc-100 truncate"
+      className: "text-[15px] font-semibold text-white truncate"
     }, e.name, e.est && /*#__PURE__*/React.createElement("span", {
-      className: "text-amber-400/70 text-[10px] ml-1.5"
+      className: "text-[#A66CFF]/70 text-[10px] ml-1.5"
     }, "est")), /*#__PURE__*/React.createElement("div", {
-      className: "text-[11px] text-zinc-500 tabular-nums"
+      className: "text-[12px] text-white/40 tabular-nums mt-0.5"
     }, e.cal, " cal · ", e.p, "p / ", e.c, "c / ", e.f, "f · ", fmtAmt(e.amount), " ", e.unit)), /*#__PURE__*/React.createElement("button", {
       onClick: () => editing ? setMEditId(null) : openMealEdit(e),
       className: "shrink-0 text-base leading-none px-1",
       style: {
-        color: editing ? "#fbbf24" : "#52525b"
+        color: editing ? "#A66CFF" : "rgba(255,255,255,0.3)"
       }
     }, "✎"), /*#__PURE__*/React.createElement("button", {
       onClick: () => removeMeal(e.id),
-      className: "shrink-0 text-zinc-600 text-sm px-1"
+      className: "shrink-0 text-white/30 text-sm px-1"
     }, "✕")), editing && /*#__PURE__*/React.createElement("div", {
-      className: "mt-2.5 pt-2.5 border-t border-zinc-800 flex items-center gap-2"
+      className: "mt-2.5 pt-2.5 border-t border-white/10 flex items-center gap-2"
     }, /*#__PURE__*/React.createElement("span", {
-      className: "text-[11px] uppercase tracking-widest text-zinc-500 mr-1"
+      className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40 mr-1"
     }, "Amount"), /*#__PURE__*/React.createElement("button", {
       onClick: () => bumpMeal(e, -1),
-      className: "w-8 h-8 rounded-md border border-zinc-700 text-zinc-300 text-lg leading-none"
+      className: "w-8 h-8 rounded-md border border-white/15 text-white/70 text-lg leading-none"
     }, "−"), /*#__PURE__*/React.createElement("input", {
       inputMode: "decimal",
       value: mEditAmt,
       onChange: ev => onMealAmt(e.id, ev.target.value),
-      className: "w-16 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-center text-sm text-zinc-100 tabular-nums outline-none"
+      className: "w-16 bg-[#141414] border border-white/10 rounded-md px-2 py-1.5 text-center text-sm text-white tabular-nums outline-none"
     }), /*#__PURE__*/React.createElement("button", {
       onClick: () => bumpMeal(e, 1),
-      className: "w-8 h-8 rounded-md border border-zinc-700 text-zinc-300 text-lg leading-none"
+      className: "w-8 h-8 rounded-md border border-white/15 text-white/70 text-lg leading-none"
     }, "+"), /*#__PURE__*/React.createElement("select", {
       value: e.unit,
       onChange: ev => changeMealUnit(e.id, ev.target.value),
-      className: "bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-sm text-zinc-300 outline-none"
+      className: "bg-[#141414] border border-white/10 rounded-md px-2 py-1.5 text-sm text-white/70 outline-none"
     }, (UNITS.indexOf(e.unit) > -1 ? UNITS : [e.unit, ...UNITS]).map(u => /*#__PURE__*/React.createElement("option", {
       key: u,
       value: u
@@ -2826,9 +2837,9 @@ function App() {
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-1"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40"
   }, "Workout"), /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500 tabular-nums"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40 tabular-nums"
   }, new Date(draft.date + "T00:00:00").toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
@@ -2840,44 +2851,42 @@ function App() {
   }, /*#__PURE__*/React.createElement("select", {
     value: templateKey,
     onChange: e => swapTemplate(e.target.value),
-    className: "w-full bg-zinc-900 border border-zinc-800 rounded-md pl-3 pr-8 py-2.5 text-zinc-100 font-semibold outline-none appearance-none truncate"
+    className: "bebas w-full bg-[#1f1f1f] rounded-xl pl-3.5 pr-8 py-3 text-[17px] tracking-[0.02em] text-white outline-none appearance-none truncate"
   }, Object.entries(allTemplates).map(([k, t]) => /*#__PURE__*/React.createElement("option", {
     key: k,
     value: k
   }, t.label)), templateKey === "__built__" && /*#__PURE__*/React.createElement("option", {
     value: "__built__"
   }, draft.type)), /*#__PURE__*/React.createElement("span", {
-    className: "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500"
+    className: "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white/40"
   }, "▾")), /*#__PURE__*/React.createElement("button", {
     onClick: openBuilder,
-    className: "shrink-0 border border-amber-400/40 text-amber-400 rounded-md px-3 text-sm font-semibold whitespace-nowrap"
-  }, "Build a Workout")), customPresets[templateKey] && /*#__PURE__*/React.createElement("button", {
+    className: "bebas shrink-0 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-xl px-4 text-sm tracking-[0.03em] whitespace-nowrap"
+  }, "BUILD A WORKOUT")), customPresets[templateKey] && /*#__PURE__*/React.createElement("button", {
     onClick: () => deletePreset(templateKey),
-    className: "text-[11px] text-zinc-500 mt-1"
+    className: "text-[11px] text-white/40 mt-1"
   }, "Remove this preset")), draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: getRecommendations,
     disabled: recLoading,
-    className: "w-full mb-4 border border-amber-400/40 text-amber-400 rounded-md py-2.5 text-sm font-semibold disabled:opacity-50"
-  }, recLoading ? "Asking…" : "Recommend Weights"), /*#__PURE__*/React.createElement("div", {
+    className: "bebas w-full mb-5 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-2xl py-3.5 text-base tracking-[0.06em] disabled:opacity-50"
+  }, recLoading ? "ASKING…" : "RECOMMEND WEIGHTS + REPS"), /*#__PURE__*/React.createElement("div", {
     className: "space-y-3"
   }, draft.exercises.map(ex => {
     return /*#__PURE__*/React.createElement("div", {
       key: ex.id,
-      className: "bg-zinc-900 rounded-xl border border-zinc-800 p-3"
+      className: "mb-6"
     }, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-start justify-between gap-2"
+      className: "flex items-start justify-between gap-2 mb-3"
     }, /*#__PURE__*/React.createElement("div", {
       className: "min-w-0 flex-1"
     }, /*#__PURE__*/React.createElement("input", {
       value: ex.name,
       onChange: e => renameExercise(ex.id, e.target.value),
-      className: "w-full bg-transparent font-bold text-[15px] text-zinc-100 outline-none"
+      className: "bebas w-full bg-transparent text-[40px] leading-[0.9] uppercase text-white outline-none"
     }), /*#__PURE__*/React.createElement("div", {
-      className: "text-[11px] text-zinc-500 mt-0.5"
-    }, ex.target && /*#__PURE__*/React.createElement("span", {
-      className: "text-zinc-400"
-    }, ex.target)), ex.recWhy && /*#__PURE__*/React.createElement("div", {
-      className: "flex items-start gap-1 text-[11px] text-amber-400 mt-0.5"
+      className: "text-[11px] uppercase tracking-[0.12em] text-white/40 mt-1"
+    }, ex.target && /*#__PURE__*/React.createElement("span", null, ex.target)), ex.recWhy && /*#__PURE__*/React.createElement("div", {
+      className: "flex items-start gap-1 text-[11px] text-[#A66CFF] mt-1"
     }, /*#__PURE__*/React.createElement("svg", {
       viewBox: "0 0 24 24",
       width: "12",
@@ -2896,94 +2905,74 @@ function App() {
       d: "M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"
     })), /*#__PURE__*/React.createElement("span", null, ex.recWhy))), /*#__PURE__*/React.createElement("button", {
       onClick: () => removeExercise(ex.id),
-      className: "text-zinc-600 text-xs px-1 shrink-0"
+      className: "text-white/30 text-sm px-1 shrink-0"
     }, "✕")), /*#__PURE__*/React.createElement("div", {
-      className: "mt-2 space-y-1.5"
+      className: "space-y-2"
     }, ex.sets.map((s, i) => {
-      const key = `${ex.id}:${i}`;
-      const noteOpen = openNotes.has(key) || s.note && s.note.length > 0;
+      const active = i === ex.sets.length - 1;
       return /*#__PURE__*/React.createElement("div", {
-        key: i
+        key: i,
+        className: "bg-[#1f1f1f] rounded-[18px] px-3.5 py-3 border-l-[3px]",
+        style: {
+          borderColor: active ? "#A66CFF" : "rgba(166,108,255,0.35)"
+        }
       }, /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center gap-2"
+        className: "flex items-center gap-2.5"
       }, /*#__PURE__*/React.createElement("span", {
-        className: "w-5 text-center text-xs font-bold text-zinc-600 tabular-nums"
-      }, i + 1), /*#__PURE__*/React.createElement("input", {
+        className: "bebas text-[16px] text-[#A66CFF] w-5 shrink-0"
+      }, String(i + 1).padStart(2, "0")), /*#__PURE__*/React.createElement("input", {
         inputMode: "text",
         placeholder: "weight",
         value: s.weight,
         onChange: e => setSet(ex.id, i, "weight", e.target.value),
-        className: "flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-2 text-sm text-zinc-100 text-center tabular-nums outline-none"
+        className: "bebas flex-1 min-w-0 bg-transparent border-none outline-none text-center text-[26px] leading-none text-white"
       }), /*#__PURE__*/React.createElement("span", {
-        className: "text-zinc-600 text-sm"
+        className: "bebas text-[16px] text-[#A66CFF] shrink-0"
       }, "×"), /*#__PURE__*/React.createElement("input", {
         inputMode: "text",
         placeholder: "reps",
         value: s.reps,
         onChange: e => setSet(ex.id, i, "reps", e.target.value),
-        className: "flex-1 min-w-0 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-2 text-sm text-zinc-100 text-center tabular-nums outline-none"
-      }), /*#__PURE__*/React.createElement("button", {
-        onClick: () => toggleNote(key),
-        className: "shrink-0 w-7 text-base leading-none",
-        style: {
-          color: s.note ? "#fbbf24" : "#52525b"
-        }
-      }, "✎")), noteOpen && /*#__PURE__*/React.createElement("input", {
-        placeholder: "What happened on this set — heavy, dropped weight, form…",
-        value: s.note || "",
-        onChange: e => setSet(ex.id, i, "note", e.target.value),
-        className: "mt-1 ml-7 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none",
-        style: {
-          width: "calc(100% - 1.75rem)"
-        }
-      }));
+        className: "bebas flex-1 min-w-0 bg-transparent border-none outline-none text-center text-[26px] leading-none text-white"
+      })));
     })), /*#__PURE__*/React.createElement("div", {
-      className: "flex gap-3 mt-2"
+      className: "flex gap-4 mt-2.5 mb-2"
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => addSet(ex.id),
-      className: "text-xs text-amber-400 font-semibold"
-    }, "+ set"), ex.sets.length > 1 && /*#__PURE__*/React.createElement("button", {
+      className: "bebas text-sm tracking-[0.03em] text-[#A66CFF]"
+    }, "+ SET"), ex.sets.length > 1 && /*#__PURE__*/React.createElement("button", {
       onClick: () => removeSet(ex.id),
-      className: "text-xs text-zinc-500"
-    }, "− set")), /*#__PURE__*/React.createElement("div", {
-      className: "mt-3 pt-3 border-t border-zinc-800"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-1.5"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "text-[10px] uppercase tracking-widest text-zinc-600 mr-1"
-    }, "Felt"), [1, 2, 3, 4, 5].map(v => /*#__PURE__*/React.createElement("button", {
-      key: v,
-      onClick: () => setExField(ex.id, "feel", ex.feel === v ? null : v),
-      className: `w-6 h-6 rounded-full text-[11px] font-bold border ${ex.feel === v ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-950 text-zinc-500 border-zinc-800"}`
-    }, v))), /*#__PURE__*/React.createElement("input", {
+      className: "bebas text-sm tracking-[0.03em] text-white/30"
+    }, "− SET")), /*#__PURE__*/React.createElement("textarea", {
+      rows: 2,
       placeholder: "Exercise note — how the movement went overall…",
       value: ex.note,
       onChange: e => setExField(ex.id, "note", e.target.value),
-      className: "w-full mt-2 bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-300 outline-none"
-    })));
+      className: "w-full box-border mt-1 bg-[#A66CFF]/[0.08] border border-[#A66CFF]/30 rounded-[10px] px-2.5 py-2 text-xs text-white outline-none resize-none"
+    }));
   })), /*#__PURE__*/React.createElement("button", {
     onClick: addExercise,
-    className: "w-full mt-3 border border-dashed border-zinc-800 rounded-xl py-2.5 text-sm text-zinc-400 font-semibold"
-  }, "+ Add movement"), /*#__PURE__*/React.createElement("div", {
+    className: "bebas w-full mt-3 border-[1.5px] border-dashed border-white/25 rounded-2xl py-3 text-[15px] tracking-[0.06em] text-white/55"
+  }, "+ ADD MOVEMENT"), /*#__PURE__*/React.createElement("div", {
     className: "mt-5"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
-  }, "Finisher"), /*#__PURE__*/React.createElement("div", {
+    className: "bebas text-[14px] tracking-[0.1em] text-white/40"
+  }, "FINISHER"), /*#__PURE__*/React.createElement("div", {
     className: "mt-1.5"
   }, /*#__PURE__*/React.createElement(Finisher, {
     value: draft.finisher,
     onChange: r => setField("finisher", r),
     onReset: () => setField("finisher", null)
   }))), /*#__PURE__*/React.createElement("div", {
-    className: "mt-6 pt-5 border-t border-zinc-800"
+    className: "mt-6 pt-5 border-t border-white/10"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] uppercase tracking-widest text-zinc-500"
+    className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40"
   }, "Overall session"), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-1.5 mt-1.5"
   }, FEELS.map(f => /*#__PURE__*/React.createElement("button", {
     key: f.v,
     onClick: () => setField("feel", f.v),
-    className: `flex-1 py-2 rounded-md text-xs font-semibold border ${Number(draft.feel) === f.v ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-900 text-zinc-400 border-zinc-800"}`
+    className: `flex-1 py-2 rounded-md text-xs font-semibold border ${Number(draft.feel) === f.v ? "bg-[#A66CFF] text-[#141414] border-[#A66CFF]" : "bg-[#1f1f1f] text-white/50 border-white/10"}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-sm font-black"
   }, f.v), /*#__PURE__*/React.createElement("div", {
@@ -2993,14 +2982,14 @@ function App() {
     placeholder: "Session notes — sleep, footy fatigue, time crunch…",
     value: draft.notes,
     onChange: e => setField("notes", e.target.value),
-    className: "w-full mt-3 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 outline-none resize-none"
+    className: "w-full mt-3 bg-[#1f1f1f] border border-white/10 rounded-md px-3 py-2 text-sm text-white outline-none resize-none"
   })), /*#__PURE__*/React.createElement("button", {
     onClick: requestSave,
-    className: "w-full mt-6 bg-amber-400 text-zinc-950 font-black rounded-xl py-3.5 text-base tracking-wide"
-  }, "Save session"), (!allTemplates[templateKey] || templateKey === "freestyle") && draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+    className: "bebas w-full mt-6 bg-[#A66CFF] text-[#141414] rounded-2xl py-3.5 text-xl tracking-[0.05em]"
+  }, "SAVE SESSION"), (!allTemplates[templateKey] || templateKey === "freestyle") && draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: saveAsPreset,
-    className: "w-full mt-2 border border-amber-400/40 text-amber-400 rounded-xl py-3 font-bold tracking-wide"
-  }, "Save Workout"))), /*#__PURE__*/React.createElement("div", {
+    className: "bebas w-full mt-2 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-2xl py-3 text-lg tracking-[0.05em]"
+  }, "SAVE WORKOUT"))), /*#__PURE__*/React.createElement("div", {
     className: `fixed left-0 right-0 top-0 z-50 bg-black transition-opacity duration-200 ${builderOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`,
     style: {
       height: "100vh",
@@ -3018,50 +3007,50 @@ function App() {
       paddingTop: "max(0.5rem, env(safe-area-inset-top))"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between py-3 shrink-0 border-b border-zinc-900"
+    className: "flex items-center justify-between py-3 shrink-0 border-b border-white/10"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-amber-400 font-bold tracking-[0.2em] text-xs uppercase"
-  }, "Build a Workout"), /*#__PURE__*/React.createElement("button", {
+    className: "bebas text-[#A66CFF] text-xl tracking-[0.06em]"
+  }, "BUILD A WORKOUT"), /*#__PURE__*/React.createElement("button", {
     onClick: closeBuilder,
     "aria-label": "Close",
-    className: "text-zinc-500 text-xl leading-none px-1"
+    className: "text-white/40 text-xl leading-none px-1"
   }, "✕")), /*#__PURE__*/React.createElement("div", {
     ref: chatScrollRef,
     className: "flex-1 overflow-y-auto overscroll-contain min-h-0 space-y-3 py-3"
   }, chatMsgs.length === 0 && /*#__PURE__*/React.createElement("div", {
-    className: "text-sm text-zinc-400 leading-relaxed"
+    className: "text-sm text-white/50 leading-relaxed"
   }, "Tell me the session you want and I'll design it, then we can refine it together. I'll use your training context, so rehab work stays knee-aware.", /*#__PURE__*/React.createElement("div", {
-    className: "mt-2 text-[12px] text-zinc-600"
+    className: "mt-2 text-[12px] text-white/30"
   }, "e.g. \"45-min lower rehab, quad-focused, easy on the knee, no heavy hinging\"")), chatMsgs.map((m, i) => m.role === "user" ? /*#__PURE__*/React.createElement("div", {
     key: i,
     className: "flex justify-end"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "bg-amber-400/15 border border-amber-400/20 text-zinc-100 rounded-2xl rounded-br-sm px-3 py-2 text-sm max-w-[85%] whitespace-pre-wrap"
+    className: "bg-[#A66CFF]/15 border border-[#A66CFF]/20 text-white rounded-2xl rounded-br-sm px-3 py-2 text-sm max-w-[85%] whitespace-pre-wrap"
   }, m.text)) : /*#__PURE__*/React.createElement("div", {
     key: i,
     className: "flex flex-col items-start gap-2"
   }, m.text && /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-2xl rounded-bl-sm px-3 py-2 text-sm max-w-[90%] leading-relaxed whitespace-pre-wrap"
+    className: "bg-[#1f1f1f] border border-white/10 text-white/90 rounded-2xl rounded-bl-sm px-3 py-2 text-sm max-w-[90%] leading-relaxed whitespace-pre-wrap"
   }, m.text), m.workout && /*#__PURE__*/React.createElement("div", {
-    className: "w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3"
+    className: "w-full bg-[#1f1f1f] border border-white/10 rounded-xl p-3"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "font-bold text-[15px] text-zinc-100 mb-2"
+    className: "font-bold text-[15px] text-white mb-2"
   }, m.workout.label), /*#__PURE__*/React.createElement("div", {
     className: "space-y-1.5"
   }, m.workout.exercises.map((ex, j) => /*#__PURE__*/React.createElement("div", {
     key: j,
     className: "flex items-center justify-between gap-3 text-sm"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "text-zinc-200 min-w-0 truncate"
+    className: "text-white/90 min-w-0 truncate"
   }, ex.name), /*#__PURE__*/React.createElement("span", {
-    className: "text-xs text-zinc-500 tabular-nums shrink-0"
+    className: "text-xs text-white/40 tabular-nums shrink-0"
   }, ex.target || ex.sets + " sets")))), /*#__PURE__*/React.createElement("button", {
     onClick: () => useBuiltWorkout(m.workout),
-    className: "w-full mt-3 bg-amber-400 text-zinc-950 font-bold rounded-lg py-2 text-sm"
-  }, "Use this workout")))), bLoading && /*#__PURE__*/React.createElement("div", {
-    className: "text-sm text-zinc-500"
+    className: "bebas w-full mt-3 bg-[#A66CFF] text-[#141414] rounded-lg py-2.5 text-base tracking-[0.04em]"
+  }, "USE THIS WORKOUT")))), bLoading && /*#__PURE__*/React.createElement("div", {
+    className: "text-sm text-white/40"
   }, "Claude is thinking…")), /*#__PURE__*/React.createElement("div", {
-    className: "shrink-0 flex gap-2 py-2 border-t border-zinc-900",
+    className: "shrink-0 flex gap-2 py-2 border-t border-white/10",
     style: {
       paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))"
     }
@@ -3073,31 +3062,31 @@ function App() {
       if (e.key === "Enter") sendChat();
     },
     placeholder: chatMsgs.length ? "Refine it…" : "Describe the workout…",
-    className: "flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-full px-4 py-2.5 text-sm text-zinc-100 outline-none"
+    className: "flex-1 min-w-0 bg-[#1f1f1f] border border-white/10 rounded-full px-4 py-2.5 text-sm text-white outline-none"
   }), /*#__PURE__*/React.createElement("button", {
     onClick: sendChat,
     disabled: bLoading,
-    className: "shrink-0 bg-amber-400 text-zinc-950 font-bold rounded-full px-5 text-sm disabled:opacity-50"
-  }, "Send"))))), confirmOpen && /*#__PURE__*/React.createElement("div", {
+    className: "bebas shrink-0 bg-[#A66CFF] text-[#141414] rounded-full px-6 text-base tracking-[0.04em] disabled:opacity-50"
+  }, "SEND"))))), confirmOpen && /*#__PURE__*/React.createElement("div", {
     className: "fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-6"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-900 border border-zinc-800 rounded-2xl p-5 w-full max-w-xs text-center"
+    className: "bg-[#1f1f1f] border border-white/10 rounded-2xl p-5 w-full max-w-xs text-center"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "text-lg font-black text-zinc-100"
+    className: "text-lg font-black text-white"
   }, "Save this session?"), /*#__PURE__*/React.createElement("div", {
-    className: "text-sm text-zinc-400 mt-1"
+    className: "text-sm text-white/50 mt-1"
   }, draft.type, " · ", draft.date), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-2 mt-5"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setConfirmOpen(false),
-    className: "flex-1 border border-zinc-700 text-zinc-300 rounded-xl py-3 font-bold"
+    className: "flex-1 border border-white/15 text-white/70 rounded-xl py-3 font-bold"
   }, "No"), /*#__PURE__*/React.createElement("button", {
     onClick: doSave,
-    className: "flex-1 bg-amber-400 text-zinc-950 rounded-xl py-3 font-black"
+    className: "flex-1 bg-[#A66CFF] text-[#141414] rounded-xl py-3 font-black"
   }, "Yes, save")))), toast && /*#__PURE__*/React.createElement("div", {
     className: "fixed bottom-8 inset-x-0 flex justify-center px-4 pointer-events-none z-40"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm rounded-full px-4 py-2 shadow-lg text-center max-w-xs"
+    className: "bg-[#2a2a2a] border border-white/15 text-white text-sm rounded-full px-4 py-2 shadow-lg text-center max-w-xs"
   }, toast)));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(App, null));
