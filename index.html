@@ -781,7 +781,6 @@ function rowsToSessions(rows) {
 }
 
 // ---------- nutrition ----------
-const FOODS_KEY = "toast:foods";
 const NUT_MACROS = [{
   key: "cal",
   label: "Calories",
@@ -806,115 +805,6 @@ const NUT_MACROS = [{
   unit: "g",
   light: [65, 75],
   heavy: [65, 75]
-}];
-const SEED_FOODS = [{
-  name: "White rice",
-  amount: 1,
-  unit: "cup",
-  cal: 205,
-  p: 4,
-  c: 45,
-  f: 0,
-  count: 9
-}, {
-  name: "Chicken breast",
-  amount: 6,
-  unit: "oz",
-  cal: 280,
-  p: 53,
-  c: 0,
-  f: 6,
-  count: 8
-}, {
-  name: "Whole eggs",
-  amount: 2,
-  unit: "large",
-  cal: 140,
-  p: 12,
-  c: 1,
-  f: 10,
-  count: 6
-}, {
-  name: "Greek yogurt",
-  amount: 1,
-  unit: "cup",
-  cal: 130,
-  p: 22,
-  c: 8,
-  f: 0,
-  count: 5
-}, {
-  name: "Protein shake",
-  amount: 1,
-  unit: "scoop",
-  cal: 120,
-  p: 25,
-  c: 3,
-  f: 2,
-  count: 5
-}, {
-  name: "Banana",
-  amount: 1,
-  unit: "medium",
-  cal: 105,
-  p: 1,
-  c: 27,
-  f: 0,
-  count: 4
-}, {
-  name: "Sweet potato",
-  amount: 1,
-  unit: "medium",
-  cal: 100,
-  p: 2,
-  c: 24,
-  f: 0,
-  count: 3
-}, {
-  name: "Ground turkey 93%",
-  amount: 6,
-  unit: "oz",
-  cal: 260,
-  p: 40,
-  c: 0,
-  f: 11,
-  count: 3
-}, {
-  name: "Oats",
-  amount: 0.5,
-  unit: "cup dry",
-  cal: 150,
-  p: 5,
-  c: 27,
-  f: 3,
-  count: 2
-}, {
-  name: "Cheddar cheese",
-  amount: 1,
-  unit: "oz",
-  cal: 115,
-  p: 7,
-  c: 0,
-  f: 9,
-  count: 2
-}, {
-  name: "Almonds",
-  amount: 1,
-  unit: "oz",
-  cal: 165,
-  p: 6,
-  c: 6,
-  f: 14,
-  count: 1
-}, {
-  name: "Olive oil",
-  amount: 1,
-  unit: "tbsp",
-  cal: 120,
-  p: 0,
-  c: 0,
-  f: 14,
-  count: 1
 }];
 const r0 = n => Math.round(n);
 const fmtAmt = n => Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
@@ -970,15 +860,15 @@ function MacroBar({
 }
 
 // nutrition network helpers (no-op / fallback when no Sheet is configured, so preview works)
-async function fetchMeals(cfg, date) {
-  if (!cfg.url) return [];
-  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}tab=nutrition&date=${encodeURIComponent(date)}&token=${encodeURIComponent(cfg.token || "")}`;
-  const d = await (await fetch(url, {
-    method: "GET"
-  })).json();
-  if (!d.ok) return [];
-  return (d.rows || []).map(r => ({
+function parseLoggedAt(s) {
+  if (!s) return 0;
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? 0 : t;
+}
+function mapMealRow(r) {
+  return {
     id: r.meal_id,
+    date: r.date || "",
     name: r.name,
     amount: Number(r.amount) || 1,
     unit: r.unit || "g",
@@ -986,8 +876,33 @@ async function fetchMeals(cfg, date) {
     p: Number(r.protein) || 0,
     c: Number(r.carbs) || 0,
     f: Number(r.fat) || 0,
+    loggedAt: parseLoggedAt(r.logged_at),
     est: false
-  }));
+  };
+}
+async function fetchMeals(cfg, date) {
+  if (!cfg.url) return [];
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}tab=nutrition&date=${encodeURIComponent(date)}&token=${encodeURIComponent(cfg.token || "")}`;
+  const d = await (await fetch(url, {
+    method: "GET"
+  })).json();
+  if (!d.ok) return [];
+  return (d.rows || []).map(mapMealRow);
+}
+// Full nutrition history (no date filter) — powers Quick Add frequency and
+// the combo-meal suggestions. Relies on the backend returning every logged
+// row for tab=nutrition when `date` is omitted, the same way it already
+// does for the strength/recap tabs. If your Apps Script requires a date and
+// comes back empty here, Quick Add/Suggested Meals just have less to learn
+// from until that's adjusted server-side — nothing else breaks.
+async function fetchAllMeals(cfg) {
+  if (!cfg.url) return [];
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}tab=nutrition&token=${encodeURIComponent(cfg.token || "")}`;
+  const d = await (await fetch(url, {
+    method: "GET"
+  })).json();
+  if (!d.ok) return [];
+  return (d.rows || []).map(mapMealRow);
 }
 async function fetchWeights(cfg) {
   if (!cfg.url) return [];
@@ -1847,7 +1762,7 @@ function App() {
   });
   const [confirmOpen, setConfirmOpen] = useState(false);
   // nutrition
-  const [foods, setFoods] = useState(() => LS.get(FOODS_KEY) || SEED_FOODS);
+  const [mealHistory, setMealHistory] = useState([]); // full logged history, for Quick Add + Suggested Meals
   const [mealLog, setMealLog] = useState([]);
   const [mealText, setMealText] = useState("");
   const [estLoading, setEstLoading] = useState(false);
@@ -2118,12 +2033,20 @@ function App() {
     ...d,
     exercises: [...d.exercises, {
       id: uid(),
-      name: "New movement",
+      name: "",
       target: "",
       perSide: false,
       feel: null,
       note: "",
       sets: [{
+        weight: "",
+        reps: "",
+        note: ""
+      }, {
+        weight: "",
+        reps: "",
+        note: ""
+      }, {
         weight: "",
         reps: "",
         note: ""
@@ -2138,18 +2061,15 @@ function App() {
   });
 
   // ----- nutrition handlers -----
-  const saveFoods = fs => {
-    setFoods(fs);
-    LS.set(FOODS_KEY, fs);
-  };
   const loadNutrition = async () => {
     if (!cfg.url) {
       setNutLoaded(true);
       return;
     }
     try {
-      const [meals, ws] = await Promise.all([fetchMeals(cfg, today()).catch(() => []), fetchWeights(cfg).catch(() => [])]);
+      const [meals, all, ws] = await Promise.all([fetchMeals(cfg, today()).catch(() => []), fetchAllMeals(cfg).catch(() => []), fetchWeights(cfg).catch(() => [])]);
       setMealLog(meals);
+      setMealHistory(all);
       setWeights(ws);
     } catch (e) {}
     setNutLoaded(true);
@@ -2165,7 +2085,102 @@ function App() {
     c: 0,
     f: 0
   });
-  const sortedFoods = [...foods].sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 15);
+  // Ground truth for both Quick Add and Suggested Meals: today's live log
+  // merged with the full fetched history, deduped by id so nothing's counted
+  // twice. No separate counter to maintain/drift — it's always recomputed
+  // fresh from what's actually been logged.
+  const combinedHistory = (() => {
+    const seen = new Set();
+    const combined = [];
+    mealLog.forEach(e => {
+      if (!seen.has(e.id)) {
+        seen.add(e.id);
+        combined.push(e);
+      }
+    });
+    mealHistory.forEach(e => {
+      if (!seen.has(e.id)) {
+        seen.add(e.id);
+        combined.push(e);
+      }
+    });
+    return combined;
+  })();
+  const dow = dateStr => {
+    const d = new Date(`${dateStr}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d.getDay();
+  };
+  const sortedFoods = (() => {
+    const byName = new Map();
+    combinedHistory.forEach(e => {
+      const key = (e.name || "").trim().toLowerCase();
+      if (!key) return;
+      const existing = byName.get(key);
+      byName.set(key, {
+        name: e.name.trim(),
+        amount: e.amount,
+        unit: e.unit,
+        cal: e.cal,
+        p: e.p,
+        c: e.c,
+        f: e.f,
+        count: (existing?.count || 0) + 1
+      });
+    });
+    return [...byName.values()].sort((a, b) => b.count - a.count).slice(0, 15);
+  })();
+  // Combo meals: cluster same-day entries logged within ~30 min of each
+  // other into one "meal occasion", then find combinations of 2+ foods that
+  // recur together, weighted toward today's day of week.
+  const mealCombos = (() => {
+    const byDate = {};
+    combinedHistory.forEach(e => {
+      if (!e.date) return;
+      (byDate[e.date] = byDate[e.date] || []).push(e);
+    });
+    const combosMap = new Map();
+    Object.keys(byDate).sort().forEach(date => {
+      const sorted = [...byDate[date]].sort((a, b) => (a.loggedAt || 0) - (b.loggedAt || 0));
+      let cluster = [];
+      const flush = () => {
+        if (cluster.length >= 2) {
+          const names = [...new Set(cluster.map(c => (c.name || "").trim().toLowerCase()).filter(Boolean))];
+          if (names.length >= 2) {
+            const key = [...names].sort().join("|");
+            const existing = combosMap.get(key) || {
+              foods: new Map(),
+              count: 0,
+              weekdayCounts: [0, 0, 0, 0, 0, 0, 0]
+            };
+            cluster.forEach(c => {
+              const nk = (c.name || "").trim().toLowerCase();
+              if (nk) existing.foods.set(nk, c);
+            });
+            existing.count += 1;
+            const d = dow(date);
+            if (d != null) existing.weekdayCounts[d] += 1;
+            combosMap.set(key, existing);
+          }
+        }
+        cluster = [];
+      };
+      sorted.forEach((e, i) => {
+        if (i > 0) {
+          const gapMin = ((e.loggedAt || 0) - (sorted[i - 1].loggedAt || 0)) / 60000;
+          if (gapMin > 30) flush();
+        }
+        cluster.push(e);
+      });
+      flush();
+    });
+    const todayDow = dow(today());
+    return [...combosMap.values()].filter(c => c.count >= 2).map(c => ({
+      key: [...c.foods.keys()].sort().join("|"),
+      foods: [...c.foods.values()],
+      count: c.count,
+      weekdayCount: todayDow == null ? 0 : c.weekdayCounts[todayDow]
+    })).sort((a, b) => b.weekdayCount - a.weekdayCount || b.count - a.count).slice(0, 6);
+  })();
   const pushMeal = e => postMeal(cfg, {
     id: e.id,
     date: e.date,
@@ -2196,12 +2211,9 @@ function App() {
       est: false
     };
     setMealLog(l => [entry, ...l]);
-    saveFoods(foods.map(f => f.name === food.name ? {
-      ...f,
-      count: (f.count || 0) + 1
-    } : f));
     pushMeal(entry);
   };
+  const addCombo = combo => combo.foods.forEach(f => addFood(f));
   const logMeal = async () => {
     const text = mealText.trim();
     if (!text) return;
@@ -2235,19 +2247,6 @@ function App() {
         est: true
       };
       setMealLog(l => [entry, ...l]);
-      saveFoods(foods.some(f => f.name.toLowerCase() === nm.toLowerCase()) ? foods.map(f => f.name.toLowerCase() === nm.toLowerCase() ? {
-        ...f,
-        count: (f.count || 0) + 1
-      } : f) : [...foods, {
-        name: nm,
-        amount: est.amount || 1,
-        unit: est.unit || "g",
-        cal: est.cal,
-        p: est.p,
-        c: est.c,
-        f: est.f,
-        count: 1
-      }]);
       pushMeal(entry);
       setMealText("");
     } catch (err) {
@@ -2744,7 +2743,28 @@ function App() {
     heavy: m.heavy
   })), /*#__PURE__*/React.createElement("div", {
     className: "text-[10px] text-white/30 mt-1"
-  }, "Shaded zone = target range for the day.")), /*#__PURE__*/React.createElement("div", {
+  }, "Shaded zone = target range for the day.")), mealCombos.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bebas text-[14px] tracking-[0.1em] text-white/40 mb-2.5"
+  }, "SUGGESTED MEALS"), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, mealCombos.map(combo => {
+    const totalCal = combo.foods.reduce((s, f) => s + (f.cal || 0), 0);
+    return /*#__PURE__*/React.createElement("button", {
+      key: combo.key,
+      onClick: () => addCombo(combo),
+      className: "w-full text-left bg-[#1f1f1f] border border-[#A66CFF]/35 rounded-xl px-4 py-3 active:bg-[#2a2a2a]"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between gap-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-[14px] text-white font-semibold"
+    }, combo.foods.map(f => f.name).join(" + ")), /*#__PURE__*/React.createElement("span", {
+      className: "text-white/35 text-[12px] shrink-0"
+    }, totalCal, " cal")), /*#__PURE__*/React.createElement("div", {
+      className: "text-[11px] text-white/35 mt-0.5"
+    }, combo.weekdayCount > 0 ? `Usually this day · logged together ${combo.count}×` : `Logged together ${combo.count}×`));
+  }))), /*#__PURE__*/React.createElement("div", {
     className: "mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bebas text-[14px] tracking-[0.1em] text-white/40 mb-2.5"
@@ -2883,6 +2903,7 @@ function App() {
     }, /*#__PURE__*/React.createElement("textarea", {
       rows: 1,
       value: ex.name,
+      placeholder: "New movement",
       ref: el => {
         if (el) {
           el.style.height = "auto";
