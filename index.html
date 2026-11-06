@@ -2544,9 +2544,7 @@ function App() {
       className: "mb-3 rounded-lg px-1.5 py-1.5 -mx-1.5" + (isDropTarget ? " bg-[#A66CFF]/10" : "")
     }, headerRow, body);
   });
-  const todayTimeline = mealLog.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-6 text-center text-sm text-white/40"
-  }, "Nothing logged yet — tap a food or describe a meal.") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  const todayTimeline = /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "text-[10px] text-white/30 mb-2"
   }, "New items default to Lunch — drag ⠿ to move one to the right meal."), /*#__PURE__*/React.createElement("div", null, bucketSections));
   const draggedEntry = dragId != null ? mealLog.find(e => e.id === dragId) : null;
