@@ -1862,6 +1862,15 @@ function App() {
   useEffect(() => {
     LS.set(DRAFTK_KEY, templateKey);
   }, [templateKey]);
+  // Full workout history from the Sheet, so the movement dropdown also knows
+  // movements logged on other devices.
+  const [sheetSessions, setSheetSessions] = useState([]);
+  const [nameFocusId, setNameFocusId] = useState(null);
+  const focusNameIdRef = useRef(null);
+  useEffect(() => {
+    if (!cfg.url) return;
+    fetchSheetRows(cfg).then(rows => setSheetSessions(rowsToSessions(rows))).catch(() => {});
+  }, [cfg.url]);
   // date always tracks today (no manual date picker); keeps the Sheet log accurate
   useEffect(() => {
     if (draft.date !== today()) setDraft(d => ({
@@ -2109,10 +2118,13 @@ function App() {
     ...d,
     exercises: d.exercises.filter(e => e.id !== exId)
   }));
-  const addExercise = () => setDraft(d => ({
+  const addExercise = () => {
+    const newId = uid();
+    focusNameIdRef.current = newId;
+    setDraft(d => ({
     ...d,
     exercises: [...d.exercises, {
-      id: uid(),
+      id: newId,
       name: "",
       target: "",
       perSide: false,
@@ -2133,7 +2145,44 @@ function App() {
       }]
     }]
   }));
+  };
   const renameExercise = (exId, v) => setExField(exId, "name", v);
+  // Every movement ever logged (this device + Sheet) or in a preset, ranked
+  // by how many sessions it appears in. Presets count 0 so they sort last.
+  const movementOptions = (() => {
+    const byKey = new Map();
+    const bump = (name, n) => {
+      const nm = (name || "").trim();
+      const k = nm.toLowerCase();
+      if (!k || k === "push/pull ladder (finisher)") return;
+      const cur = byKey.get(k);
+      byKey.set(k, {
+        name: cur ? cur.name : nm,
+        count: (cur ? cur.count : 0) + n
+      });
+    };
+    const seenSessions = new Set();
+    [...sessions, ...sheetSessions].forEach(s => {
+      if (seenSessions.has(s.id)) return;
+      seenSessions.add(s.id);
+      (s.exercises || []).forEach(e => bump(e.name, 1));
+    });
+    [...Object.values(TEMPLATES), ...Object.values(customPresets)].forEach(t => (t && t.exercises || []).forEach(e => bump(e.name, 0)));
+    return [...byKey.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  })();
+  const movementSuggestions = ex => {
+    const q = (ex.name || "").trim().toLowerCase();
+    const inDraft = new Set(draft.exercises.filter(e => e.id !== ex.id).map(e => (e.name || "").trim().toLowerCase()));
+    return movementOptions.filter(o => {
+      const k = o.name.toLowerCase();
+      return !inDraft.has(k) && k !== q && (!q || k.includes(q));
+    }).slice(0, 8);
+  };
+  const pickMovement = (exId, name) => {
+    renameExercise(exId, name);
+    setNameFocusId(null);
+    if (document.activeElement) document.activeElement.blur();
+  };
   const toggleNote = key => setOpenNotes(prev => {
     const n = new Set(prev);
     n.has(key) ? n.delete(key) : n.add(key);
@@ -3083,6 +3132,18 @@ function App() {
   }, recLoading ? "ASKING…" : "RECOMMEND WEIGHTS + REPS"), /*#__PURE__*/React.createElement("div", {
     className: "space-y-4"
   }, draft.exercises.map(ex => {
+    const nameSugg = nameFocusId === ex.id ? movementSuggestions(ex) : [];
+    const nameDropdown = nameSugg.length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 bg-[#141414] border border-white/10 rounded-xl overflow-hidden max-h-72 overflow-y-auto"
+    }, nameSugg.map(o => /*#__PURE__*/React.createElement("button", {
+      key: o.name,
+      type: "button",
+      // keep the textarea focused until the tap lands
+      onPointerDown: ev => ev.preventDefault(),
+      onMouseDown: ev => ev.preventDefault(),
+      onClick: () => pickMovement(ex.id, o.name),
+      className: "block w-full text-left px-3.5 py-3 text-[15px] text-white border-b border-white/5 last:border-b-0 active:bg-[#2a2a2a]"
+    }, o.name)));
     return /*#__PURE__*/React.createElement("div", {
       key: ex.id,
       className: "bg-[#171717] border border-white/10 rounded-2xl p-4"
@@ -3098,15 +3159,21 @@ function App() {
         if (el) {
           el.style.height = "auto";
           el.style.height = el.scrollHeight + "px";
+          if (focusNameIdRef.current === ex.id) {
+            focusNameIdRef.current = null;
+            el.focus();
+          }
         }
       },
+      onFocus: () => setNameFocusId(ex.id),
+      onBlur: () => setTimeout(() => setNameFocusId(cur => cur === ex.id ? null : cur), 150),
       onChange: e => {
         renameExercise(ex.id, e.target.value);
         e.target.style.height = "auto";
         e.target.style.height = e.target.scrollHeight + "px";
       },
       className: "bebas block w-full bg-transparent text-[40px] leading-[0.9] uppercase text-white outline-none resize-none overflow-hidden"
-    }), /*#__PURE__*/React.createElement("div", {
+    }), nameDropdown, /*#__PURE__*/React.createElement("div", {
       className: "text-[11px] uppercase tracking-[0.12em] text-white/40 mt-1"
     }, ex.target && /*#__PURE__*/React.createElement("span", null, ex.target)), ex.recWhy && /*#__PURE__*/React.createElement("div", {
       className: "flex items-start gap-1 text-[11px] text-[#A66CFF] mt-1"
