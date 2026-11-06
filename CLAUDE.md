@@ -19,6 +19,12 @@
 - mealType persists via pushMeal -> POST; reads back via mapMealRow (r.meal_type).
 - Previous design was an 8am-10pm hourly timeline -- explicitly replaced with the 4-bucket version. Don't bring it back.
 
+## WOD module (Workouts tab, under Finisher)
+- 7 formats (AMRAP, For Time, EMOM, Chipper, RFT, Tabata, Ladder); "Log my own", local "Randomize" (WOD_POOL, full-gym), "Past WODs" to repeat. Lives on draft/session as `wod`.
+- Timer is timestamp-based (startedAt/pausedAt/pausedMs on draft.wod) so it survives backgrounding/reloads; WebAudio beeps + Screen Wake Lock while running.
+- Sheet storage needs no Apps Script change: sessionForSheet appends one exercise row named "WOD — <title>", target = wodSpec (parseable), reps = numeric score, set_note = "Score: ...", exercise_note = movements (one per line) + "Notes: ...". rowsToSessions turns it back into `wod`. Keep wodSpec/parseWodSpec and wodScoreText/parseWodScore in sync.
+- A WOD-only session saves with type "WOD — <title>". Progress = "Your history on this WOD" (matched by wodSignature: spec + normalized movements).
+
 ## OPEN ISSUE -- Suggested meals / Quick Add look stale
 mealCombos groups history by date+mealType, finds 2+-food combos repeated on 2+ occasions, ranks by same-weekday then total frequency, shows top 6. Requires fetchAllMeals (tab=nutrition, no date) to actually return full history. User reports Quick Add/Suggested Meals look like the same static list, not reflecting recent/real logs. Not yet root-caused -- check: stale cached deploy vs. fetchAllMeals actually returning full history vs. not enough repeated combos logged yet.
 

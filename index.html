@@ -711,7 +711,7 @@ async function postToSheet(session, cfg) {
       },
       body: JSON.stringify({
         token: cfg.token || "",
-        session
+        session: sessionForSheet(session)
       }),
       redirect: "follow"
     });
@@ -772,13 +772,19 @@ function rowsToSessions(rows) {
     };
     rec.exercises[r.exercise].sets.push({
       weight: r.weight,
-      reps: r.reps
+      reps: r.reps,
+      note: r.set_note || ""
     });
   });
-  return Object.values(bySession).map(s => ({
-    ...s,
-    exercises: Object.values(s.exercises)
-  }));
+  return Object.values(bySession).map(s => {
+    const all = Object.values(s.exercises);
+    const wodEx = all.find(e => String(e.name).startsWith(WOD_PREFIX));
+    return {
+      ...s,
+      wod: wodEx ? exerciseToWod(wodEx) : null,
+      exercises: all.filter(e => e !== wodEx)
+    };
+  });
 }
 
 // ---------- nutrition ----------
@@ -1071,6 +1077,11 @@ function buildCSV(list) {
         sFirst = false;
       });
     }
+    if (s.wod) {
+      const w = s.wod;
+      rows.push([s.date, s.type, WOD_PREFIX + wodTitle(w), wodSpec(w), 1, "", wodScoreNum(w), "Score: " + wodScoreText(w), "", w.movements.join(" / ") + (w.notes ? ` — ${w.notes}` : ""), sFirst ? s.feel || "" : "", sFirst ? s.notes || "" : ""]);
+      sFirst = false;
+    }
   });
   return rows.map(r => r.map(csvCell).join(",")).join("\n");
 }
@@ -1098,6 +1109,11 @@ function summaryText(s) {
     const rc = f.rounds ? f.rounds.length : 0;
     lines.push("", "Finisher — Push/Pull Ladder", `  ${rc} rounds · ${f.totalPush} push-ups · ${f.totalPull} pull-ups · ${fmtClock(f.seconds || 0)}`);
     if (rc) lines.push(`  Rounds: ${f.rounds.map(r => `${r.push}/${r.pull}`).join(", ")}`);
+  }
+  if (s.wod) {
+    lines.push("", `WOD — ${wodTitle(s.wod)} · ${wodScoreText(s.wod)}`);
+    s.wod.movements.forEach(m => lines.push(`  • ${m}`));
+    if (s.wod.notes) lines.push(`  Notes: ${s.wod.notes}`);
   }
   if (s.notes) {
     lines.push("", `Session notes: ${s.notes}`);
@@ -1328,6 +1344,921 @@ function Finisher({
     onClick: finish,
     className: "bebas flex-1 bg-[#A66CFF] text-[#141414] rounded-xl py-3 text-[14px] tracking-[0.04em]"
   }, "FINISH LADDER")));
+}
+
+// ---------- WOD ----------
+// Lives on the draft/session as `wod`. It reaches the Sheet as one extra
+// exercise row (wodToExercise) so the existing Apps Script stores it with no
+// backend change; rowsToSessions turns that row back into `wod`.
+const WOD_PREFIX = "WOD — ";
+const WOD_FORMATS = [{
+  k: "amrap",
+  label: "AMRAP",
+  desc: "As many rounds + reps as possible before the clock runs out."
+}, {
+  k: "fortime",
+  label: "For Time",
+  desc: "Fixed work, race the clock. Optional rep scheme like 21-15-9."
+}, {
+  k: "emom",
+  label: "EMOM",
+  desc: "Start the next station at the top of every interval; leftover time is rest."
+}, {
+  k: "chipper",
+  label: "Chipper",
+  desc: "One long list, once through, as fast as possible. Tick each off as you go."
+}, {
+  k: "rft",
+  label: "RFT",
+  desc: "A set number of rounds of the list, as fast as possible."
+}, {
+  k: "tabata",
+  label: "Tabata",
+  desc: "20s on / 10s off × 8 per movement, 1 min rest between movements."
+}, {
+  k: "ladder",
+  label: "Ladder",
+  desc: "Reps climb every rung (2, 4, 6…) until the time cap."
+}];
+const WOD_DEFAULTS = {
+  amrap: { cap: 20 },
+  fortime: { scheme: "21-15-9", cap: 0 },
+  emom: { cap: 12, every: 1 },
+  chipper: { cap: 0 },
+  rft: { rounds: 4, cap: 0 },
+  tabata: { work: 20, rest: 10, sets: 8 },
+  ladder: { start: 2, step: 2, cap: 10 }
+};
+const isTimeFormat = f => f === "fortime" || f === "chipper" || f === "rft";
+const emptyWodScore = () => ({
+  rounds: 0,
+  reps: 0,
+  timeSec: 0,
+  capped: false,
+  intervals: null,
+  lows: [],
+  done: []
+});
+function newWod(format, extra) {
+  return {
+    format,
+    cap: 0,
+    scheme: "",
+    rounds: 0,
+    every: 1,
+    work: 20,
+    rest: 10,
+    sets: 8,
+    start: 2,
+    step: 2,
+    movements: [],
+    notes: "",
+    ...WOD_DEFAULTS[format],
+    ...(extra || {}),
+    status: "setup",
+    timer: null,
+    score: emptyWodScore()
+  };
+}
+const parseMovements = text => String(text || "").split("\n").map(l => l.replace(/^\s*[\*\-•·]\s*/, "").trim()).filter(Boolean);
+const schemeReps = w => String(w.scheme || "").split("-").map(Number).filter(n => n > 0);
+const emomTotal = w => Math.max(1, Math.floor((w.cap || 0) / (w.every || 1)));
+function wodTitle(w) {
+  switch (w.format) {
+    case "amrap":
+      return `${w.cap}-min AMRAP`;
+    case "fortime":
+      return w.scheme ? `${w.scheme} For Time` : "For Time";
+    case "emom":
+      return w.every > 1 ? `E${w.every}MOM × ${w.cap} min` : `${w.cap}-min EMOM`;
+    case "chipper":
+      return "Chipper";
+    case "rft":
+      return `${w.rounds} Rounds For Time`;
+    case "tabata":
+      return "Tabata";
+    case "ladder":
+      return `${w.cap}-min Ladder`;
+    default:
+      return "WOD";
+  }
+}
+// Compact, parseable description — stored as the Sheet row's "target".
+function wodSpec(w) {
+  const f = WOD_FORMATS.find(x => x.k === w.format);
+  const p = [f ? f.label : "WOD"];
+  if (w.format === "amrap" || w.format === "emom") p.push(`${w.cap} min`);
+  if (w.format === "emom" && w.every > 1) p.push(`every ${w.every} min`);
+  if (w.format === "fortime" && w.scheme) p.push(w.scheme);
+  if (w.format === "rft") p.push(`${w.rounds} rounds`);
+  if (w.format === "tabata") p.push(`${w.work}s/${w.rest}s x${w.sets}`);
+  if (w.format === "ladder") p.push(`start ${w.start} +${w.step}`, `${w.cap} min`);
+  if (isTimeFormat(w.format) && w.cap > 0) p.push(`${w.cap} min cap`);
+  return p.join(" · ");
+}
+function parseWodSpec(spec) {
+  const parts = String(spec || "").split(" · ");
+  const f = WOD_FORMATS.find(x => x.label === parts[0]);
+  if (!f) return null;
+  const w = newWod(f.k);
+  if (isTimeFormat(f.k)) w.cap = 0;
+  w.scheme = "";
+  parts.slice(1).forEach(p => {
+    let m;
+    if (m = p.match(/^(\d+) min cap$/)) w.cap = +m[1];else if (m = p.match(/^(\d+) min$/)) w.cap = +m[1];else if (m = p.match(/^every (\d+) min$/)) w.every = +m[1];else if (m = p.match(/^(\d+) rounds$/)) w.rounds = +m[1];else if (m = p.match(/^(\d+)s\/(\d+)s x(\d+)$/)) {
+      w.work = +m[1];
+      w.rest = +m[2];
+      w.sets = +m[3];
+    } else if (m = p.match(/^start (\d+) \+(\d+)$/)) {
+      w.start = +m[1];
+      w.step = +m[2];
+    } else if (/^\d+(-\d+)+$/.test(p)) w.scheme = p;
+  });
+  return w;
+}
+const wodLowsSum = s => (s.lows || []).reduce((a, b) => a + (+b || 0), 0);
+function wodScoreText(w) {
+  const s = w.score || {};
+  switch (w.format) {
+    case "amrap":
+      return `${s.rounds || 0} rds${s.reps ? ` + ${s.reps}` : ""}`;
+    case "ladder":
+      return `${s.rounds || 0} rungs${s.reps ? ` + ${s.reps}` : ""}`;
+    case "emom":
+      return `${s.intervals ?? emomTotal(w)}/${emomTotal(w)} intervals`;
+    case "tabata":
+      return `${wodLowsSum(s)} total (${(s.lows || []).map(n => +n || 0).join("/") || "-"})`;
+    default:
+      return s.capped ? `Capped · ${s.reps || 0} reps` : fmtClock(s.timeSec || 0);
+  }
+}
+function wodScoreNum(w) {
+  const s = w.score || {};
+  if (w.format === "amrap" || w.format === "ladder") return s.rounds || 0;
+  if (w.format === "emom") return s.intervals ?? emomTotal(w);
+  if (w.format === "tabata") return wodLowsSum(s);
+  return s.capped ? s.reps || 0 : s.timeSec || 0;
+}
+// Higher is better, so results of the same WOD can be compared.
+function wodRank(w) {
+  const s = w.score || {};
+  if (w.format === "amrap" || w.format === "ladder") return (s.rounds || 0) * 1000 + (s.reps || 0);
+  if (w.format === "emom") return s.intervals ?? emomTotal(w);
+  if (w.format === "tabata") return wodLowsSum(s);
+  return s.capped ? -1e7 + (s.reps || 0) : -(s.timeSec || 1e6);
+}
+function parseWodScore(w, text, num) {
+  const s = emptyWodScore();
+  const t = String(text || "").replace(/^Score:\s*/, "");
+  let m;
+  if (w.format === "amrap" || w.format === "ladder") {
+    m = t.match(/^(\d+) (?:rds|rungs)(?: \+ (\d+))?/);
+    s.rounds = m ? +m[1] : +num || 0;
+    s.reps = m && m[2] ? +m[2] : 0;
+  } else if (w.format === "emom") {
+    m = t.match(/^(\d+)\//);
+    s.intervals = m ? +m[1] : +num || 0;
+  } else if (w.format === "tabata") {
+    m = t.match(/\(([\d/]+)\)/);
+    s.lows = m ? m[1].split("/").map(Number) : +num ? [+num] : [];
+  } else if (m = t.match(/^Capped · (\d+) reps/)) {
+    s.capped = true;
+    s.reps = +m[1];
+  } else if (m = t.match(/^(\d+):(\d\d)$/)) s.timeSec = +m[1] * 60 + +m[2];else s.timeSec = +num || 0;
+  return s;
+}
+const wodSignature = w => wodSpec(w) + "#" + (w.movements || []).map(m => m.toLowerCase().replace(/\s*@\s*/g, "@").replace(/\s+/g, " ").trim()).join("|");
+function wodToExercise(w) {
+  const lines = [...(w.movements || [])];
+  if (w.notes) lines.push("Notes: " + w.notes);
+  return {
+    id: "wod",
+    name: WOD_PREFIX + wodTitle(w),
+    target: wodSpec(w),
+    perSide: false,
+    feel: null,
+    note: lines.join("\n"),
+    sets: [{
+      weight: "",
+      reps: String(wodScoreNum(w)),
+      note: "Score: " + wodScoreText(w)
+    }]
+  };
+}
+function exerciseToWod(ex) {
+  const w = parseWodSpec(ex.target);
+  if (!w) return null;
+  const lines = String(ex.note || "").split("\n");
+  const notesLine = lines.find(l => l.startsWith("Notes: "));
+  w.movements = lines.filter(l => l.trim() && !l.startsWith("Notes: "));
+  w.notes = notesLine ? notesLine.slice(7) : "";
+  const set = ex.sets && ex.sets[0] || {};
+  w.score = parseWodScore(w, set.note, set.reps);
+  w.status = "done";
+  return w;
+}
+function sessionForSheet(s) {
+  if (!s.wod) return s;
+  const {
+    wod,
+    ...rest
+  } = s;
+  return {
+    ...rest,
+    exercises: [...(rest.exercises || []), wodToExercise(wod)]
+  };
+}
+const WOD_POOL = {
+  mono: [{ name: "cal row", bare: "Row (calories)", r: [10, 12, 15, 20], big: [50, 40], tabata: true },
+    { name: "cal bike", bare: "Bike (calories)", r: [10, 12, 15], big: [40, 30], tabata: true },
+    { name: "cal ski erg", bare: "Ski erg (calories)", r: [10, 12, 15], big: [40, 30], tabata: true },
+    { name: "m run", bare: "Run", r: [200, 400], big: [800, 400] },
+    { name: "double-unders", r: [30, 40, 50], big: [100, 75], tabata: true }],
+  gym: [{ name: "pull-ups", r: [5, 8, 10, 12], big: [50, 30] },
+    { name: "push-ups", r: [10, 15, 20], big: [50, 40], tabata: true },
+    { name: "burpees", r: [8, 10, 12], big: [40, 30], tabata: true },
+    { name: "box jumps (24\")", r: [10, 12, 15], big: [40, 30] },
+    { name: "toes-to-bar", r: [8, 10, 12], big: [40, 30] },
+    { name: "handstand push-ups", r: [5, 8, 10], big: [30, 20] },
+    { name: "air squats", r: [15, 20, 25], big: [100, 75], tabata: true },
+    { name: "sit-ups", r: [15, 20, 25], big: [50, 40], tabata: true },
+    { name: "walking lunges", r: [10, 16, 20], big: [50, 40], tabata: true },
+    { name: "ring dips", r: [8, 10, 12], big: [30, 20] },
+    { name: "burpee box jump-overs", r: [6, 8, 10], big: [30, 20] },
+    { name: "wall walks", r: [2, 3, 4], big: [10, 8] },
+    { name: "chest-to-bar pull-ups", r: [6, 8, 10], big: [30, 20] },
+    { name: "V-ups", r: [10, 15], big: [40, 30], tabata: true }],
+  wl: [{ name: "KB swings @ 53", r: [12, 15, 20], big: [50, 40], tabata: true },
+    { name: "alt DB snatches @ 50", r: [10, 16, 20], big: [40, 30] },
+    { name: "thrusters @ 95", r: [8, 10, 12], big: [30, 21] },
+    { name: "wall balls @ 20", r: [12, 15, 20], big: [50, 40], tabata: true },
+    { name: "deadlifts @ 225", r: [5, 8, 10], big: [30, 21] },
+    { name: "power cleans @ 135", r: [5, 8, 10], big: [30, 20] },
+    { name: "front squats @ 135", r: [6, 8, 10], big: [30, 20] },
+    { name: "push press @ 115", r: [8, 10, 12], big: [30, 20] },
+    { name: "DB box step-overs @ 50s", r: [10, 12, 16], big: [30, 20] },
+    { name: "DB thrusters @ 50s", r: [8, 10, 12], big: [30, 20] },
+    { name: "sumo deadlift high pulls @ 95", r: [10, 12, 15], big: [30, 20] },
+    { name: "overhead squats @ 95", r: [6, 8, 10], big: [20, 15] },
+    { name: "hang power snatches @ 95", r: [5, 8, 10], big: [20, 15] },
+    { name: "DB devil press @ 35s", r: [6, 8, 10], big: [20, 15] },
+    { name: "KB goblet squats @ 53", r: [12, 15, 20], big: [40, 30] },
+    { name: "hang clean & jerks @ 115", r: [5, 8], big: [20, 15] }]
+};
+const wodPick = a => a[Math.floor(Math.random() * a.length)];
+const wodPickN = (a, n) => [...a].sort(() => Math.random() - 0.5).slice(0, n);
+const wodBare = m => m.bare || m.name.charAt(0).toUpperCase() + m.name.slice(1);
+const wodMix = n => {
+  const gym = Math.ceil((n - 1) / 2);
+  return [wodPick(WOD_POOL.mono), ...wodPickN(WOD_POOL.wl, n - 1 - gym), ...wodPickN(WOD_POOL.gym, gym)];
+};
+function generateWod(format) {
+  const k = format && format !== "any" ? format : wodPick(WOD_FORMATS).k;
+  const P = WOD_POOL;
+  const withReps = (m, n) => `${n} ${m.name}`;
+  if (k === "amrap") return newWod(k, {
+    cap: wodPick([8, 10, 12, 15, 20]),
+    movements: wodMix(wodPick([3, 3, 4])).map(m => withReps(m, wodPick(m.r)))
+  });
+  if (k === "fortime") {
+    const ms = [wodPick(P.wl), wodPick(P.gym)];
+    if (Math.random() < 0.35) ms.unshift(wodPick(P.mono.filter(m => m.tabata)));
+    return newWod(k, {
+      scheme: wodPick(["21-15-9", "15-12-9", "10-8-6-4-2", "27-21-15-9"]),
+      cap: wodPick([10, 12, 15]),
+      movements: ms.map(wodBare)
+    });
+  }
+  if (k === "emom") {
+    const n = wodPick([2, 3, 4]);
+    return newWod(k, {
+      cap: n * wodPick([4, 5]),
+      every: 1,
+      movements: wodMix(n).map(m => withReps(m, m.r[0]))
+    });
+  }
+  if (k === "chipper") return newWod(k, {
+    cap: wodPick([25, 30, 35]),
+    movements: wodMix(wodPick([6, 7, 8])).map(m => withReps(m, wodPick(m.big)))
+  });
+  if (k === "rft") return newWod(k, {
+    rounds: wodPick([3, 4, 5]),
+    cap: wodPick([15, 20, 25]),
+    movements: wodMix(3).map(m => withReps(m, wodPick(m.r)))
+  });
+  if (k === "tabata") return newWod(k, {
+    movements: wodPickN([...P.mono, ...P.gym, ...P.wl].filter(m => m.tabata), wodPick([2, 3, 4])).map(wodBare)
+  });
+  const start = wodPick([1, 2, 3]);
+  return newWod("ladder", {
+    start,
+    step: start,
+    cap: wodPick([10, 12, 15]),
+    movements: [wodPick(P.wl), wodPick(P.gym)].map(wodBare)
+  });
+}
+const wodElapsedMs = (t, now) => t ? Math.max(0, (t.pausedAt || now) - t.startedAt - (t.pausedMs || 0)) : 0;
+function wodDurationSec(w) {
+  if (w.format === "tabata") {
+    const n = Math.max(1, (w.movements || []).length);
+    return n * (w.work + w.rest) * w.sets + (n - 1) * 60;
+  }
+  if (w.format === "emom") return emomTotal(w) * (w.every || 1) * 60;
+  return (w.cap || 0) * 60;
+}
+// Where in the interval structure we are; `key` changes at every boundary (→ beep).
+function wodPhase(w, e) {
+  const n = Math.max(1, (w.movements || []).length);
+  if (w.format === "emom") {
+    const per = (w.every || 1) * 60;
+    const i = Math.floor(e / per);
+    return {
+      key: "i" + i,
+      idx: i % n,
+      left: per - (e - i * per),
+      label: `Interval ${Math.min(i + 1, emomTotal(w))} of ${emomTotal(w)}`
+    };
+  }
+  if (w.format === "tabata") {
+    const cyc = w.work + w.rest,
+      block = cyc * w.sets,
+      seg = block + 60;
+    const b = Math.floor(e / seg),
+      within = e - b * seg;
+    if (within >= block) return {
+      key: "rb" + b,
+      idx: Math.min(b + 1, n - 1),
+      left: seg - within,
+      label: "Rest · next up",
+      rest: true
+    };
+    const i = Math.floor(within / cyc),
+      inI = within - i * cyc,
+      work = inI < w.work;
+    return {
+      key: `t${b}-${i}-${work ? "w" : "r"}`,
+      idx: Math.min(b, n - 1),
+      left: work ? w.work - inI : cyc - inI,
+      label: `${work ? "Work" : "Rest"} · round ${i + 1}/${w.sets}`,
+      rest: !work
+    };
+  }
+  return {
+    key: "main",
+    idx: -1,
+    left: 0,
+    label: ""
+  };
+}
+let wodAudio = null;
+function wodAudioUnlock() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!wodAudio) wodAudio = new AC();
+    if (wodAudio.state === "suspended") wodAudio.resume();
+  } catch (e) {}
+}
+function wodBeep(long) {
+  try {
+    if (!wodAudio) return;
+    const o = wodAudio.createOscillator(),
+      g = wodAudio.createGain();
+    const len = long ? 0.9 : 0.25;
+    o.frequency.value = long ? 660 : 880;
+    o.connect(g);
+    g.connect(wodAudio.destination);
+    const t0 = wodAudio.currentTime;
+    g.gain.setValueAtTime(0.3, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + len);
+    o.start(t0);
+    o.stop(t0 + len);
+  } catch (e) {}
+}
+const WOD_PLACEHOLDER = {
+  amrap: "12 cal row\n10 KB swings @ 53\n8 DB push press @ 35s\n8 push-ups",
+  fortime: "Thrusters @ 95\nPull-ups",
+  emom: "12 cal row\n10 clean & press @ 95",
+  chipper: "100 air squats\n75 pull-ups\n50 handstand push-ups",
+  rft: "400 m run\n50 air squats",
+  tabata: "Air squats\nPush-ups",
+  ladder: "Power cleans @ 135\nBurpees"
+};
+function Wod({
+  value,
+  onChange,
+  onReset,
+  history
+}) {
+  const h = React.createElement;
+  const w = value;
+  const [mode, setMode] = useState(null); // null | "random" | "history"
+  const [randFormat, setRandFormat] = useState("any");
+  const [randWod, setRandWod] = useState(null);
+  const [movesText, setMovesText] = useState(() => w && w.movements ? w.movements.join("\n") : "");
+  const [err, setErr] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  const lastKeyRef = useRef(null);
+  const wakeRef = useRef(null);
+  const running = !!(w && w.status === "running" && w.timer);
+  const paused = !!(running && w.timer.pausedAt);
+  const lockScreen = async () => {
+    try {
+      if (navigator.wakeLock && !wakeRef.current) wakeRef.current = await navigator.wakeLock.request("screen");
+    } catch (e) {}
+  };
+  const unlockScreen = () => {
+    try {
+      if (wakeRef.current) wakeRef.current.release();
+    } catch (e) {}
+    wakeRef.current = null;
+  };
+  useEffect(() => {
+    if (!running || paused) return;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      wakeRef.current = null;
+      setNow(Date.now());
+      lockScreen();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [running, paused]);
+  useEffect(() => () => unlockScreen(), []);
+  const e = running ? wodElapsedMs(w.timer, now) / 1000 : 0;
+  const dur = w ? wodDurationSec(w) : 0;
+  const update = patch => onChange({
+    ...w,
+    ...patch
+  });
+  const setScore = patch => update({
+    score: {
+      ...w.score,
+      ...patch
+    }
+  });
+  const finish = (auto, patch) => {
+    const sc = {
+      ...w.score,
+      ...(patch || {})
+    };
+    const secs = Math.round(dur > 0 ? Math.min(e, dur) : e);
+    if (isTimeFormat(w.format)) {
+      if (auto) sc.capped = true;else sc.timeSec = secs;
+    }
+    if (w.format === "emom") sc.intervals = auto ? emomTotal(w) : Math.min(emomTotal(w), Math.floor(e / ((w.every || 1) * 60)));
+    unlockScreen();
+    wodBeep(true);
+    lastKeyRef.current = null;
+    onChange({
+      ...w,
+      status: "done",
+      timer: null,
+      score: sc
+    });
+  };
+  useEffect(() => {
+    if (!running || paused) return;
+    const ph = wodPhase(w, e);
+    if (ph.key !== lastKeyRef.current) {
+      if (lastKeyRef.current != null) wodBeep(false);
+      lastKeyRef.current = ph.key;
+    }
+    if (dur > 0 && e >= dur) finish(true);
+  }, [now, running, paused]);
+  const startFrom = src => {
+    setMovesText((src.movements || []).join("\n"));
+    setMode(null);
+    setErr("");
+    onChange({
+      ...src,
+      notes: "",
+      status: "setup",
+      timer: null,
+      score: emptyWodScore()
+    });
+  };
+  const sameAs = wod => {
+    const sig = wodSignature(wod);
+    return (history || []).filter(x => wodSignature(x.wod) === sig);
+  };
+  const lbl = "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40";
+  const inputCls = "w-full bg-[#141414] border border-white/10 rounded-lg px-3 py-2 text-[16px] text-white outline-none";
+  const btnGhost = "bebas flex-1 border border-white/15 text-white/70 rounded-xl py-3 text-[14px] tracking-[0.04em]";
+  const btnAccent = "bebas flex-1 bg-[#A66CFF] text-[#141414] rounded-xl py-3 text-[14px] tracking-[0.04em]";
+  const panel = "bg-[#1f1f1f] rounded-2xl border border-white/10 p-4";
+  const numInput = (v, onVal, placeholder) => h("input", {
+    inputMode: "numeric",
+    value: v ? String(v) : "",
+    placeholder: placeholder || "0",
+    onChange: ev => onVal(parseInt(ev.target.value.replace(/\D/g, ""), 10) || 0),
+    className: inputCls + " text-center"
+  });
+  const field = (label, control) => h("label", {
+    className: "block flex-1 min-w-0"
+  }, h("div", {
+    className: lbl + " mb-1"
+  }, label), control);
+  const moveList = (items, activeIdx) => h("div", {
+    className: "space-y-1 mt-2"
+  }, items.map((m, i) => h("div", {
+    key: i,
+    className: "text-[15px] " + (i === activeIdx ? "text-[#A66CFF] font-semibold" : "text-white/85")
+  }, (i === activeIdx ? "› " : "• ") + m)));
+  const headerRow = (title, actions) => h("div", {
+    className: "flex items-center justify-between gap-2 mb-3"
+  }, h("span", {
+    className: lbl
+  }, title), h("div", {
+    className: "flex gap-3"
+  }, ...actions.filter(Boolean).map(([label, fn]) => h("button", {
+    key: label,
+    onClick: fn,
+    className: "text-xs text-white/40 font-semibold"
+  }, label))));
+
+  // ----- nothing chosen yet -----
+  if (!w) {
+    if (mode === "random") {
+      const chips = h("div", {
+        className: "flex flex-wrap gap-1.5"
+      }, [{
+        k: "any",
+        label: "Any"
+      }, ...WOD_FORMATS].map(f => h("button", {
+        key: f.k,
+        onClick: () => {
+          setRandFormat(f.k);
+          setRandWod(generateWod(f.k));
+        },
+        className: "rounded-full px-3 py-1.5 text-[12px] font-semibold border " + (randFormat === f.k ? "bg-[#A66CFF] text-[#141414] border-[#A66CFF]" : "bg-[#141414] text-white/70 border-white/10")
+      }, f.label)));
+      const card = randWod && h("div", {
+        className: "bg-[#141414] border border-[#A66CFF]/35 rounded-xl p-4 mt-3"
+      }, h("div", {
+        className: "bebas text-[28px] leading-none text-white"
+      }, wodTitle(randWod)), h("div", {
+        className: "text-[11px] text-white/40 mt-1"
+      }, wodSpec(randWod)), moveList(randWod.movements, -1));
+      return h("div", {
+        className: panel
+      }, headerRow("WOD randomizer", [["back", () => setMode(null)]]), chips, card, h("div", {
+        className: "flex gap-2 mt-3"
+      }, h("button", {
+        onClick: () => setRandWod(generateWod(randFormat)),
+        className: btnGhost
+      }, "REROLL"), h("button", {
+        onClick: () => startFrom(randWod),
+        className: btnAccent
+      }, "USE THIS")));
+    }
+    if (mode === "history") {
+      const rows = (history || []).slice(0, 40).map(x => h("button", {
+        key: x.id + x.date,
+        onClick: () => startFrom(x.wod),
+        className: "w-full text-left bg-[#141414] border border-white/10 rounded-xl px-3.5 py-2.5"
+      }, h("div", {
+        className: "flex items-center justify-between gap-2"
+      }, h("span", {
+        className: "text-[14px] text-white font-semibold truncate"
+      }, wodTitle(x.wod)), h("span", {
+        className: "text-[12px] text-[#A66CFF] shrink-0 tabular-nums"
+      }, wodScoreText(x.wod))), h("div", {
+        className: "text-[11px] text-white/35 mt-0.5 truncate"
+      }, x.date + " · " + x.wod.movements.join(", "))));
+      return h("div", {
+        className: panel
+      }, headerRow("Past WODs", [["back", () => setMode(null)]]), h("div", {
+        className: "space-y-1.5 max-h-96 overflow-y-auto"
+      }, ...rows), h("div", {
+        className: "text-[11px] text-white/30 mt-2"
+      }, "Tap one to do it again."));
+    }
+    const entryBtn = (title, sub, fn) => h("button", {
+      onClick: fn,
+      className: "flex-1 bg-[#1f1f1f] border border-white/10 rounded-xl py-3 text-sm font-bold text-white/90"
+    }, title, h("div", {
+      className: "text-[11px] font-normal text-white/40 mt-0.5"
+    }, sub));
+    return h("div", null, h("div", {
+      className: "flex gap-2"
+    }, entryBtn("Log my own", "AMRAP, For Time, EMOM…", () => startFrom(newWod("amrap"))), entryBtn("Randomize", "App picks a WOD", () => {
+      setRandWod(generateWod(randFormat));
+      setMode("random");
+    })), history && history.length > 0 && h("button", {
+      onClick: () => setMode("history"),
+      className: "text-[12px] text-white/50 font-semibold mt-2"
+    }, `Past WODs (${history.length}) ›`));
+  }
+
+  // ----- setup: pick format, params, movements -----
+  if (w.status === "setup") {
+    const f = WOD_FORMATS.find(x => x.k === w.format) || WOD_FORMATS[0];
+    const setFormat = k => update({
+      format: k,
+      ...WOD_DEFAULTS[k]
+    });
+    const capNone = label => field(label || "Cap (min)", numInput(w.cap, v => update({
+      cap: v
+    }), "none"));
+    const params = {
+      amrap: [field("Time cap (min)", numInput(w.cap, v => update({ cap: v })))],
+      fortime: [field("Rep scheme", h("input", {
+        value: w.scheme,
+        placeholder: "optional",
+        onChange: ev => update({
+          scheme: ev.target.value.replace(/[^\d-]/g, "")
+        }),
+        className: inputCls + " text-center"
+      })), capNone()],
+      emom: [field("Total (min)", numInput(w.cap, v => update({ cap: v }))), field("Every (min)", numInput(w.every, v => update({ every: v })))],
+      chipper: [capNone()],
+      rft: [field("Rounds", numInput(w.rounds, v => update({ rounds: v }))), capNone()],
+      tabata: [field("Work (s)", numInput(w.work, v => update({ work: v }))), field("Rest (s)", numInput(w.rest, v => update({ rest: v }))), field("Rounds", numInput(w.sets, v => update({ sets: v })))],
+      ladder: [field("Start reps", numInput(w.start, v => update({ start: v }))), field("+ per rung", numInput(w.step, v => update({ step: v }))), field("Cap (min)", numInput(w.cap, v => update({ cap: v })))]
+    }[w.format];
+    const repsFromScheme = w.format === "tabata" || w.format === "ladder" || w.format === "fortime" && w.scheme;
+    const draftMoves = parseMovements(movesText);
+    const prev = draftMoves.length ? sameAs({
+      ...w,
+      movements: draftMoves
+    }) : [];
+    const best = prev.length ? prev.reduce((a, b) => wodRank(b.wod) > wodRank(a.wod) ? b : a) : null;
+    const validate = () => {
+      if (!draftMoves.length) return "Add at least one movement.";
+      if ((w.format === "amrap" || w.format === "emom" || w.format === "ladder") && !w.cap) return "Set the time.";
+      if (w.format === "rft" && !w.rounds) return "Set the number of rounds.";
+      if (w.format === "tabata" && (!w.work || !w.sets)) return "Set work time and rounds.";
+      if (w.format === "ladder" && !w.step) return "Set how much each rung adds.";
+      return "";
+    };
+    const go = withTimer => {
+      const msg = validate();
+      setErr(msg);
+      if (msg) return;
+      const score = {
+        ...emptyWodScore(),
+        done: draftMoves.map(() => false),
+        lows: draftMoves.map(() => "")
+      };
+      if (withTimer) {
+        wodAudioUnlock();
+        wodBeep(false);
+        lockScreen();
+        lastKeyRef.current = null;
+        setNow(Date.now());
+      }
+      onChange({
+        ...w,
+        movements: draftMoves,
+        status: withTimer ? "running" : "done",
+        timer: withTimer ? {
+          startedAt: Date.now(),
+          pausedAt: null,
+          pausedMs: 0
+        } : null,
+        score
+      });
+    };
+    const chips = h("div", {
+      className: "flex flex-wrap gap-1.5"
+    }, WOD_FORMATS.map(x => h("button", {
+      key: x.k,
+      onClick: () => setFormat(x.k),
+      className: "rounded-full px-3 py-1.5 text-[12px] font-semibold border " + (w.format === x.k ? "bg-[#A66CFF] text-[#141414] border-[#A66CFF]" : "bg-[#141414] text-white/70 border-white/10")
+    }, x.label)));
+    const prevLine = prev.length > 0 && h("div", {
+      className: "text-[12px] text-white/50 mt-2"
+    }, `Done ${prev.length}× before · last ${prev[0].date}: `, h("span", {
+      className: "text-[#A66CFF] font-semibold"
+    }, wodScoreText(prev[0].wod)), prev.length > 1 ? ` · best ${wodScoreText(best.wod)}` : "");
+    return h("div", {
+      className: panel
+    }, headerRow("Set up WOD", [["cancel", () => {
+      setMode(null);
+      onReset();
+    }]]), chips, h("div", {
+      className: "text-[12px] text-white/40 mt-2"
+    }, f.desc), h("div", {
+      className: "flex gap-2 mt-3"
+    }, ...params), h("div", {
+      className: lbl + " mt-4 mb-1"
+    }, "Movements — one per line"), h("textarea", {
+      rows: Math.max(4, draftMoves.length + 1),
+      value: movesText,
+      onChange: ev => setMovesText(ev.target.value),
+      placeholder: WOD_PLACEHOLDER[w.format],
+      className: inputCls + " text-[15px] leading-snug resize-none"
+    }), repsFromScheme && h("div", {
+      className: "text-[11px] text-white/30 mt-1"
+    }, "Reps come from the format — just list the movements."), prevLine, err && h("div", {
+      className: "text-[12px] text-[#FF6FA5] mt-2"
+    }, err), h("button", {
+      onClick: () => go(true),
+      className: "bebas w-full mt-4 rounded-2xl py-4 text-[16px] text-[#141414] tracking-[0.04em] bg-[#A66CFF]"
+    }, "START TIMER"), h("button", {
+      onClick: () => go(false),
+      className: "bebas w-full mt-2 border border-white/15 text-white/70 rounded-2xl py-3 text-[14px] tracking-[0.04em]"
+    }, "JUST LOG MY SCORE"));
+  }
+
+  // ----- running -----
+  if (w.status === "running") {
+    const ph = wodPhase(w, e);
+    const remaining = dur > 0 ? Math.max(0, dur - e) : 0;
+    const scheme = schemeReps(w);
+    const target = w.format === "rft" ? w.rounds : w.format === "fortime" && scheme.length ? scheme.length : 0;
+    const rounds = w.score.rounds || 0;
+    const counter = w.format === "amrap" || w.format === "ladder" || target > 0;
+    const intervalFmt = w.format === "emom" || w.format === "tabata";
+    const bigSec = intervalFmt ? ph.left : isTimeFormat(w.format) ? e : remaining;
+    const bigText = fmtClock(isTimeFormat(w.format) ? Math.floor(bigSec) : Math.ceil(bigSec));
+    const subText = intervalFmt ? `${fmtClock(Math.ceil(remaining))} left` : isTimeFormat(w.format) ? w.cap ? `${w.cap}:00 cap` : "no cap" : `${fmtClock(Math.floor(e))} elapsed`;
+    const doneFlags = w.score.done || [];
+    const statusLine = {
+      amrap: `${rounds} round${rounds === 1 ? "" : "s"} done`,
+      ladder: `Rung ${rounds + 1} · ${w.start + w.step * rounds} reps each`,
+      rft: `Round ${Math.min(rounds + 1, w.rounds)} of ${w.rounds}`,
+      fortime: target ? `Round ${Math.min(rounds + 1, target)} of ${target} · ${scheme[Math.min(rounds, target - 1)]} reps each` : "Go!",
+      chipper: `${doneFlags.filter(Boolean).length}/${w.movements.length} done — tap each when finished`,
+      emom: ph.label,
+      tabata: ph.label
+    }[w.format];
+    const addRound = () => {
+      const r = rounds + 1;
+      if (target && r >= target) finish(false, {
+        rounds: r
+      });else setScore({
+        rounds: r
+      });
+    };
+    const toggleDone = i => {
+      const done = w.movements.map((_, j) => j === i ? !doneFlags[j] : !!doneFlags[j]);
+      if (done.every(Boolean)) finish(false, {
+        done
+      });else setScore({
+        done
+      });
+    };
+    const pauseToggle = () => {
+      const t = w.timer;
+      if (t.pausedAt) update({
+        timer: {
+          ...t,
+          pausedMs: (t.pausedMs || 0) + (Date.now() - t.pausedAt),
+          pausedAt: null
+        }
+      });else update({
+        timer: {
+          ...t,
+          pausedAt: Date.now()
+        }
+      });
+    };
+    const restart = () => {
+      if (!window.confirm("Stop the clock and go back to setup? This attempt won't be kept.")) return;
+      unlockScreen();
+      setMovesText(w.movements.join("\n"));
+      update({
+        status: "setup",
+        timer: null,
+        score: emptyWodScore()
+      });
+    };
+    const clock = h("div", {
+      className: "text-center"
+    }, h("div", {
+      className: "bebas text-[72px] leading-none tabular-nums " + (ph.rest || paused ? "text-white/40" : "text-white")
+    }, bigText), h("div", {
+      className: "text-[12px] text-white/40 mt-1 tabular-nums"
+    }, paused ? "PAUSED" : subText));
+    const status = h("div", {
+      className: "bebas text-center text-[20px] tracking-[0.03em] mt-3 " + (ph.rest ? "text-white/50" : "text-[#A66CFF]")
+    }, statusLine);
+    const list = w.format === "chipper" ? h("div", {
+      className: "space-y-1.5 mt-3"
+    }, w.movements.map((m, i) => h("button", {
+      key: i,
+      onClick: () => toggleDone(i),
+      className: "w-full flex items-center gap-3 text-left rounded-xl px-3.5 py-3 border " + (doneFlags[i] ? "bg-[#A66CFF]/15 border-[#A66CFF]/40 text-white/40 line-through" : "bg-[#141414] border-white/10 text-white")
+    }, h("span", {
+      className: "w-5 h-5 shrink-0 rounded-md border flex items-center justify-center text-[12px] " + (doneFlags[i] ? "bg-[#A66CFF] border-[#A66CFF] text-[#141414]" : "border-white/30")
+    }, doneFlags[i] ? "✓" : ""), h("span", {
+      className: "text-[15px]"
+    }, m)))) : moveList(w.movements, intervalFmt ? ph.idx : -1);
+    const roundBtn = counter && h("button", {
+      onClick: addRound,
+      className: "bebas w-full mt-4 rounded-2xl py-4 text-[18px] text-[#141414] tracking-[0.04em] bg-[#A66CFF]"
+    }, w.format === "ladder" ? "RUNG DONE" : "+1 ROUND");
+    const controls = h("div", {
+      className: "flex gap-2 mt-3"
+    }, h("button", {
+      onClick: pauseToggle,
+      className: btnGhost
+    }, paused ? "RESUME" : "PAUSE"), counter && h("button", {
+      onClick: () => setScore({
+        rounds: Math.max(0, rounds - 1)
+      }),
+      className: btnGhost
+    }, "UNDO"), h("button", {
+      onClick: () => finish(false),
+      className: "bebas flex-1 border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-xl py-3 text-[14px] tracking-[0.04em]"
+    }, "FINISH"));
+    return h("div", {
+      className: "bg-[#1f1f1f] rounded-2xl border border-[#A66CFF] p-4"
+    }, headerRow(wodTitle(w), [["restart", restart]]), clock, status, list, roundBtn, controls);
+  }
+
+  // ----- done: score, notes, progress -----
+  const sc = w.score || emptyWodScore();
+  const timeEditor = sc.capped ? [field("Reps completed", numInput(sc.reps, v => setScore({
+    reps: v
+  })))] : [field("Min", numInput(Math.floor((sc.timeSec || 0) / 60), v => setScore({
+    timeSec: v * 60 + (sc.timeSec || 0) % 60
+  }))), field("Sec", numInput((sc.timeSec || 0) % 60, v => setScore({
+    timeSec: Math.floor((sc.timeSec || 0) / 60) * 60 + Math.min(59, v)
+  })))];
+  const editor = {
+    amrap: [field("Rounds", numInput(sc.rounds, v => setScore({ rounds: v }))), field("+ Reps", numInput(sc.reps, v => setScore({ reps: v })))],
+    ladder: [field("Rungs done", numInput(sc.rounds, v => setScore({ rounds: v }))), field("+ Reps", numInput(sc.reps, v => setScore({ reps: v })))],
+    emom: [field(`Intervals done (of ${emomTotal(w)})`, numInput(sc.intervals ?? emomTotal(w), v => setScore({ intervals: Math.min(v, emomTotal(w)) })))]
+  }[w.format] || (isTimeFormat(w.format) ? timeEditor : null);
+  const capToggle = isTimeFormat(w.format) && h("button", {
+    onClick: () => setScore({
+      capped: !sc.capped
+    }),
+    className: "text-[12px] font-semibold mt-2 " + (sc.capped ? "text-[#A66CFF]" : "text-white/40")
+  }, sc.capped ? "✓ Hit the time cap" : "Hit the time cap?");
+  const tabataEditor = w.format === "tabata" && h("div", {
+    className: "space-y-1.5"
+  }, h("div", {
+    className: lbl
+  }, "Lowest reps in any round"), w.movements.map((m, i) => h("div", {
+    key: i,
+    className: "flex items-center gap-2"
+  }, h("span", {
+    className: "flex-1 text-[14px] text-white/85 truncate"
+  }, m), h("div", {
+    className: "w-20"
+  }, numInput((sc.lows || [])[i], v => setScore({
+    lows: w.movements.map((_, j) => j === i ? v : (sc.lows || [])[j] || 0)
+  }))))));
+  const prev = sameAs(w);
+  const best = prev.length ? prev.reduce((a, b) => wodRank(b.wod) > wodRank(a.wod) ? b : a) : null;
+  const isPR = best && wodRank(w) > wodRank(best.wod);
+  const progress = prev.length ? h("div", {
+    className: "mt-4 pt-3 border-t border-white/10"
+  }, h("div", {
+    className: "flex items-center justify-between mb-1.5"
+  }, h("span", {
+    className: lbl
+  }, "Your history on this WOD"), isPR && h("span", {
+    className: "bebas text-[13px] tracking-[0.06em] text-[#141414] bg-[#7ED9A8] rounded-full px-2.5 py-0.5"
+  }, "NEW BEST")), prev.slice(0, 5).map((x, i) => h("div", {
+    key: i,
+    className: "flex justify-between text-[13px] py-0.5"
+  }, h("span", {
+    className: "text-white/50"
+  }, x.date), h("span", {
+    className: "tabular-nums " + (x === best ? "text-[#7ED9A8] font-semibold" : "text-white/80")
+  }, wodScoreText(x.wod), x === best ? " · best" : "")))) : h("div", {
+    className: "text-[11px] text-white/30 mt-3"
+  }, "First time logging this WOD — do it again later to track progress.");
+  return h("div", {
+    className: panel
+  }, headerRow("WOD", [["edit", () => {
+    setMovesText(w.movements.join("\n"));
+    update({
+      status: "setup"
+    });
+  }], ["remove", () => {
+    setMode(null);
+    onReset();
+  }]]), h("div", {
+    className: "bebas text-[30px] leading-none text-white"
+  }, wodTitle(w)), h("div", {
+    className: "text-[11px] text-white/40 mt-1"
+  }, wodSpec(w)), moveList(w.movements, -1), h("div", {
+    className: "mt-4 flex items-baseline justify-between gap-2"
+  }, h("span", {
+    className: lbl
+  }, "Score"), h("span", {
+    className: "bebas text-[30px] leading-none text-[#A66CFF] tabular-nums"
+  }, wodScoreText(w))), editor && h("div", {
+    className: "flex gap-2 mt-2"
+  }, ...editor), capToggle, tabataEditor, h("textarea", {
+    rows: 2,
+    placeholder: "Notes — scaling, how it felt…",
+    value: w.notes || "",
+    onChange: ev => update({
+      notes: ev.target.value
+    }),
+    className: "w-full box-border mt-3 bg-[#A66CFF]/[0.08] border border-[#A66CFF]/30 rounded-[10px] px-2.5 py-2 text-xs text-white outline-none resize-none"
+  }), progress);
 }
 
 // ---------- Weight trend (daily dots + 7-day moving average) ----------
@@ -1912,7 +2843,10 @@ function App() {
     const t = allTemplates[key];
     if (!t) return;
     setTemplateKey(key);
-    setDraft(buildDraftFromTemplate(t));
+    setDraft(d => ({
+      ...buildDraftFromTemplate(t),
+      wod: d.wod || null
+    }));
     setOpenNotes(new Set());
   };
   const saveCustomPresets = p => {
@@ -1987,7 +2921,10 @@ function App() {
   const useBuiltWorkout = w => {
     if (!w) return;
     setTemplateKey("__built__");
-    setDraft(buildDraftFromTemplate(w));
+    setDraft(d => ({
+      ...buildDraftFromTemplate(w),
+      wod: d.wod || null
+    }));
     setOpenNotes(new Set());
     setBuilderOpen(false);
     window.scrollTo(0, 0);
@@ -2178,6 +3115,24 @@ function App() {
       return !inDraft.has(k) && k !== q && (!q || k.includes(q));
     }).slice(0, 8);
   };
+  // Every completed WOD from this device + the Sheet, newest first.
+  const wodHistory = (() => {
+    const seen = new Set();
+    const out = [];
+    [...sessions, ...sheetSessions].forEach(s => {
+      if (!s.wod || s.wod.status !== "done") return;
+      const key = s.date + "#" + wodSignature(s.wod) + "#" + wodScoreText(s.wod);
+      if (seen.has(s.id) || seen.has(key)) return;
+      seen.add(s.id);
+      seen.add(key);
+      out.push({
+        id: s.id,
+        date: s.date,
+        wod: s.wod
+      });
+    });
+    return out.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+  })();
   const pickMovement = (exId, name) => {
     renameExercise(exId, name);
     setNameFocusId(null);
@@ -2643,10 +3598,16 @@ function App() {
     const d = today();
     setWeights(ws => ws.filter(w => w.date !== d));
   };
+  const draftHasLifts = draft.exercises.some(e => e.sets.some(s => s.weight || s.reps));
+  const draftWod = draft.wod && draft.wod.status === "done" ? draft.wod : null;
+  const saveType = !draftHasLifts && !draft.finisher && draftWod ? WOD_PREFIX + wodTitle(draftWod) : draft.type;
   const requestSave = () => {
-    const hasLifts = draft.exercises.some(e => e.sets.some(s => s.weight || s.reps));
-    if (!hasLifts && !draft.finisher) {
-      flash("Log at least one set or the finisher before saving.");
+    if (draft.wod && draft.wod.status === "running") {
+      flash("Finish the WOD first.");
+      return;
+    }
+    if (!draftHasLifts && !draft.finisher && !draftWod) {
+      flash("Log at least one set, the finisher, or a WOD before saving.");
       return;
     }
     setConfirmOpen(true);
@@ -2657,7 +3618,9 @@ function App() {
       id: uid(),
       savedAt: Date.now(),
       synced: false,
-      ...draft
+      ...draft,
+      type: saveType,
+      wod: draftWod
     };
     const next = [record, ...sessions].sort((a, b) => a.date < b.date ? 1 : -1);
     persist(next);
@@ -3265,6 +4228,17 @@ function App() {
     onChange: r => setField("finisher", r),
     onReset: () => setField("finisher", null)
   }))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-5"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "bebas text-[14px] tracking-[0.1em] text-white/40"
+  }, "WOD"), /*#__PURE__*/React.createElement("div", {
+    className: "mt-1.5"
+  }, /*#__PURE__*/React.createElement(Wod, {
+    value: draft.wod || null,
+    onChange: v => setField("wod", v),
+    onReset: () => setField("wod", null),
+    history: wodHistory
+  }))), /*#__PURE__*/React.createElement("div", {
     className: "mt-6 pt-5 border-t border-white/10"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40"
@@ -3376,7 +4350,7 @@ function App() {
     className: "text-lg font-black text-white"
   }, "Save this session?"), /*#__PURE__*/React.createElement("div", {
     className: "text-sm text-white/50 mt-1"
-  }, draft.type, " · ", draft.date), /*#__PURE__*/React.createElement("div", {
+  }, saveType, " · ", draft.date), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-2 mt-5"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setConfirmOpen(false),
