@@ -32,7 +32,11 @@ mealCombos groups history by date+mealType, finds 2+-food combos repeated on 2+ 
 Weight/reps inputs should default to a numeric keypad (inputMode=decimal/numeric) with a way to switch to a full keyboard for things like "BW" or "AMRAP". Current implementation is a floating toolbar pinned above the iOS keyboard using window.visualViewport offset math, with a 123/ABC toggle that blurs/refocuses the input to force inputMode to re-apply. Not yet confirmed working on a real device/live deploy -- verify this first.
 
 ## Workflow notes
-- Preview before live: never push app changes straight to main. Push to a branch, open a PR, wait for the Netlify deploy preview (deploy-preview-<N>--toastperformancesystem.netlify.app), share that URL with the user, and merge to main only after they confirm it looks right. Docs-only changes (e.g. this file) can go straight to main.
+- Preview before live: never push app changes straight to main. Push to a branch, open a PR, wait for the Netlify deploy preview (deploy-preview-<N>--toastperformancesystem.netlify.app), share that URL with the user, and merge to main only after they confirm it looks right.
+- Netlify credits (free plan = 300/month, hard limit; running out pauses the live site until the next cycle): every production deploy (any push/merge to main) costs 15 credits; deploy previews cost 0.
+  - Batch: stack multiple changes on the branch/PR and review them on the same preview; merge to main once, not per change. Ask the user before merging if more changes are likely coming in the same session.
+  - Docs/notes-only commits to main (e.g. this file) must include `[skip netlify]` in the commit message so they don't trigger a deploy.
+  - Never push throwaway/test commits to main.
 - Preview caveats: previews are a different origin, so Settings (Sheet URL/token) saved on the live site don't carry over -- re-enter them on the preview to see real data. Non-production deploys require Netlify team login.
 - Pushes happen exclusively via local Claude Code -> GitHub -> Netlify auto-deploy.
 - GitHub auth: fine-grained PAT scoped to this repo only, Contents: Read/write.
