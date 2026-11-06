@@ -2207,7 +2207,7 @@ function App() {
         count: (existing?.count || 0) + 1
       });
     });
-    return [...byName.values()].sort((a, b) => b.count - a.count).slice(0, 15);
+    return [...byName.values()].sort((a, b) => b.count - a.count).slice(0, 10);
   })();
   // The bucket an entry "belongs to": its explicit mealType (set on add, or
   // moved by dragging) if valid, else Lunch — the same default used when
