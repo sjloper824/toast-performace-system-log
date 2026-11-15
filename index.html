@@ -336,6 +336,7 @@ const DRAFTK_KEY = "toast:draftKey";
 const SEED_FLAG = "toast:seeded_v1";
 const CFG_KEY = "toast:cfg";
 const PRESETS_KEY = "toast:presets";
+const SHEET_WORKOUTS_KEY = "toast:sheetWorkouts";
 const PUSH = "#A66CFF";
 const PULL = "#FF6FA5";
 const today = () => {
@@ -696,8 +697,12 @@ function buildDraftFromTemplate(t) {
     }))
   };
 }
+// Any picker key — built-in, saved preset or Sheet workout — falls back to the
+// blank workout, so a key that no longer exists can't crash the draft reset.
 function buildDraft(templateKey) {
-  return buildDraftFromTemplate(TEMPLATES[templateKey]);
+  const fromSheet = (LS.get(SHEET_WORKOUTS_KEY) || []).find(w => w.id === templateKey);
+  const t = fromSheet || (LS.get(PRESETS_KEY) || {})[templateKey] || TEMPLATES[templateKey] || TEMPLATES.freestyle;
+  return buildDraftFromTemplate(t);
 }
 
 // ---------- sheet sync ----------
@@ -932,6 +937,67 @@ async function fetchWeights(cfg) {
     date: r.date,
     lb: Number(r.lb) || 0
   })).filter(w => w.lb > 0);
+}
+// Workouts tab: one row per movement, grouped by workout_id (or by title when a
+// hand-added row has no id — the backend uses the same "sheet:<title>" rule).
+function workoutsFromRows(rows) {
+  const byId = new Map();
+  rows.forEach(r => {
+    const title = String(r.workout ?? "").trim();
+    const id = String(r.workout_id ?? "").trim() || (title ? "sheet:" + title : "");
+    if (!id) return;
+    let w = byId.get(id);
+    if (!w) {
+      w = {
+        id,
+        label: title,
+        exercises: []
+      };
+      byId.set(id, w);
+    }
+    if (!w.label && title) w.label = title;
+    const name = String(r.exercise ?? "").trim();
+    if (name) w.exercises.push({
+      name,
+      target: String(r.target ?? ""),
+      sets: parseInt(r.sets, 10) || 3,
+      perSide: r.per_side === true || String(r.per_side).toLowerCase() === "true"
+    });
+  });
+  return [...byId.values()].map(w => ({
+    ...w,
+    label: w.label || "Untitled workout"
+  }));
+}
+// null = the backend doesn't serve the Workouts tab (older script), so keep the built-in list.
+async function fetchWorkouts(cfg) {
+  if (!cfg.url) return null;
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}tab=workouts&token=${encodeURIComponent(cfg.token || "")}`;
+  const d = await (await fetch(url, {
+    method: "GET"
+  })).json();
+  if (!d.ok || !Array.isArray(d.rows)) return null;
+  if (d.rows.length && !("workout" in d.rows[0])) return null;
+  return workoutsFromRows(d.rows);
+}
+async function postWorkoutChange(cfg, change) {
+  try {
+    const res = await fetch(cfg.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify({
+        token: cfg.token || "",
+        ...change
+      }),
+      redirect: "follow"
+    });
+    const d = await res.json();
+    return !!(d && d.ok);
+  } catch (e) {
+    return false;
+  }
 }
 function postMeal(cfg, meal) {
   if (!cfg.url) return;
@@ -2802,6 +2868,55 @@ function App() {
     if (!cfg.url) return;
     fetchSheetRows(cfg).then(rows => setSheetSessions(rowsToSessions(rows))).catch(() => {});
   }, [cfg.url]);
+  // Workout picker list from the Sheet's Workouts tab (cached for offline/instant start).
+  const [sheetWorkouts, setSheetWorkoutsState] = useState(() => LS.get(SHEET_WORKOUTS_KEY));
+  const setSheetWorkouts = list => {
+    setSheetWorkoutsState(list);
+    LS.set(SHEET_WORKOUTS_KEY, list);
+  };
+  useEffect(() => {
+    if (!cfg.url) return;
+    fetchWorkouts(cfg).then(async list => {
+      if (!list) return;
+      // One-time move of presets saved on this phone into the Sheet.
+      const labels = new Set(list.map(w => w.label));
+      const local = LS.get(PRESETS_KEY) || {};
+      const moved = [];
+      const remap = {};
+      for (const [id, p] of Object.entries(local)) {
+        if (labels.has(p.label)) {
+          remap[id] = list.find(w => w.label === p.label).id;
+          moved.push(id);
+          continue;
+        }
+        const ok = await postWorkoutChange(cfg, {
+          saveWorkout: {
+            id,
+            name: p.label,
+            exercises: p.exercises || []
+          }
+        });
+        if (ok) {
+          list.push({
+            id,
+            label: p.label,
+            exercises: p.exercises || []
+          });
+          moved.push(id);
+        }
+      }
+      setSheetWorkouts(list);
+      if (moved.length) {
+        const rest = {
+          ...local
+        };
+        moved.forEach(id => delete rest[id]);
+        setCustomPresets(rest);
+        LS.set(PRESETS_KEY, rest);
+        setTemplateKey(k => remap[k] || k);
+      }
+    }).catch(() => {});
+  }, [cfg.url]);
   // date always tracks today (no manual date picker); keeps the Sheet log accurate
   useEffect(() => {
     if (draft.date !== today()) setDraft(d => ({
@@ -2835,10 +2950,17 @@ function App() {
     const topSet = top != null ? done.find(s => parseFloat(s.weight) === top) : done[0];
     return `${prior.date} · top ${topSet.weight || "BW"} × ${topSet.reps || "?"}`;
   }, [sessions]);
-  const allTemplates = {
+  const sheetMode = !!cfg.url && Array.isArray(sheetWorkouts) && sheetWorkouts.length > 0;
+  const allTemplates = sheetMode ? {
+    ...Object.fromEntries(sheetWorkouts.map(w => [w.id, w])),
+    ...customPresets,
+    freestyle: TEMPLATES.freestyle
+  } : {
     ...TEMPLATES,
     ...customPresets
   };
+  const inSheet = key => sheetMode && sheetWorkouts.some(w => w.id === key);
+  const canEditWorkout = key => key !== "freestyle" && (!!customPresets[key] || inSheet(key));
   const swapTemplate = key => {
     const t = allTemplates[key];
     if (!t) return;
@@ -2975,7 +3097,7 @@ function App() {
     };
   }, [builderOpen]);
   // save the current workout structure as a reusable preset (no code push needed)
-  const saveAsPreset = () => {
+  const saveAsPreset = async () => {
     if (!draft.exercises.length) {
       flash("Add or build some exercises first.");
       return;
@@ -2992,25 +3114,97 @@ function App() {
         perSide: !!e.perSide
       }))
     };
+    setDraft(d => ({
+      ...d,
+      type: name
+    }));
+    if (sheetMode) {
+      const ok = await postWorkoutChange(cfg, {
+        saveWorkout: {
+          id: key,
+          name,
+          exercises: preset.exercises
+        }
+      });
+      if (!ok) {
+        flash("Couldn't save to the Sheet — check your connection.");
+        return;
+      }
+      setSheetWorkouts([...sheetWorkouts, {
+        id: key,
+        ...preset
+      }]);
+      setTemplateKey(key);
+      flash("Saved to your Workouts tab.");
+      return;
+    }
     saveCustomPresets({
       ...customPresets,
       [key]: preset
     });
     setTemplateKey(key);
-    setDraft(d => ({
-      ...d,
-      type: name
-    }));
     flash("Saved to your workout list.");
   };
-  const deletePreset = key => {
-    const p = {
-      ...customPresets
-    };
-    delete p[key];
-    saveCustomPresets(p);
-    swapTemplate("lower");
-    flash("Preset removed.");
+  const deletePreset = async key => {
+    const label = allTemplates[key] ? allTemplates[key].label : "this workout";
+    if (!window.confirm(`Remove "${label}" from your workout list?`)) return;
+    if (inSheet(key)) {
+      const ok = await postWorkoutChange(cfg, {
+        deleteWorkout: {
+          id: key
+        }
+      });
+      if (!ok) {
+        flash("Couldn't remove it from the Sheet — check your connection.");
+        return;
+      }
+      setSheetWorkouts(sheetWorkouts.filter(w => w.id !== key));
+    } else {
+      const p = {
+        ...customPresets
+      };
+      delete p[key];
+      saveCustomPresets(p);
+    }
+    const next = Object.keys(allTemplates).find(k => k !== key) || "freestyle";
+    swapTemplate(next);
+    flash("Workout removed.");
+  };
+  // Renames the workout everywhere it's listed; sessions already logged keep the old name.
+  const renameWorkout = async key => {
+    const cur = allTemplates[key];
+    if (!cur) return;
+    const name = (window.prompt("Rename this workout:", cur.label) || "").trim();
+    if (!name || name === cur.label) return;
+    if (inSheet(key)) {
+      const ok = await postWorkoutChange(cfg, {
+        renameWorkout: {
+          id: key,
+          name
+        }
+      });
+      if (!ok) {
+        flash("Couldn't rename it in the Sheet — check your connection.");
+        return;
+      }
+      setSheetWorkouts(sheetWorkouts.map(w => w.id === key ? {
+        ...w,
+        label: name
+      } : w));
+    } else {
+      saveCustomPresets({
+        ...customPresets,
+        [key]: {
+          ...customPresets[key],
+          label: name
+        }
+      });
+    }
+    if (key === templateKey) setDraft(d => d.type === cur.label ? {
+      ...d,
+      type: name
+    } : d);
+    flash("Workout renamed.");
   };
   const setField = (k, v) => setDraft(d => ({
     ...d,
@@ -3104,7 +3298,7 @@ function App() {
       seenSessions.add(s.id);
       (s.exercises || []).forEach(e => bump(e.name, 1));
     });
-    [...Object.values(TEMPLATES), ...Object.values(customPresets)].forEach(t => (t && t.exercises || []).forEach(e => bump(e.name, 0)));
+    Object.values(allTemplates).forEach(t => (t && t.exercises || []).forEach(e => bump(e.name, 0)));
     return [...byKey.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   })();
   const movementSuggestions = ex => {
@@ -3133,6 +3327,18 @@ function App() {
     });
     return out.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
   })();
+  const workoutActionBtn = "text-[11px] text-white/40 font-semibold";
+  const workoutActions = canEditWorkout(templateKey) && /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-4 mt-1.5"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => renameWorkout(templateKey),
+    className: workoutActionBtn
+  }, "Rename"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => deletePreset(templateKey),
+    className: workoutActionBtn
+  }, "Remove"), sheetMode && /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] text-white/25"
+  }, "Edit movements in the Sheet's Workouts tab"));
   const pickMovement = (exId, name) => {
     renameExercise(exId, name);
     setNameFocusId(null);
@@ -4085,10 +4291,7 @@ function App() {
   }, "▾")), /*#__PURE__*/React.createElement("button", {
     onClick: openBuilder,
     className: "bebas shrink-0 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-xl px-4 text-sm tracking-[0.03em] whitespace-nowrap"
-  }, "BUILD A WORKOUT")), customPresets[templateKey] && /*#__PURE__*/React.createElement("button", {
-    onClick: () => deletePreset(templateKey),
-    className: "text-[11px] text-white/40 mt-1"
-  }, "Remove this preset")), draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "BUILD A WORKOUT")), workoutActions), draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: getRecommendations,
     disabled: recLoading,
     className: "bebas w-full mb-5 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-2xl py-3.5 text-base tracking-[0.06em] disabled:opacity-50"
