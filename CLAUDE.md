@@ -16,6 +16,11 @@
 - Recommend matches history by normalized movement name (case/plural/"dumbbell"→db etc.) and, when an exercise has <2 dated sessions, adds up to 2 similar movements as a guide.
 - Workouts tab = the app's workout picker: one row per movement (workout_id, workout, exercise, target, sets, per_side). Rows without an id are keyed "sheet:<title>" by both app and script. If the backend doesn't serve it, the app falls back to built-in TEMPLATES + local presets.
 
+## Strength sync (app -> Sheet)
+- POST text/plain to the web app; Apps Script answers 302 -> googleusercontent JSON, which fetch follows and can read (`postToSheet` checks `data.ok`). Not an opaque/no-cors call.
+- doSave starts the upload before resetting the draft (a draft-reset crash for non-built-in workouts used to skip the upload entirely — fixed Nov 2026).
+- Unsynced sessions auto-retry on open, on foreground/online, and every 90s (`syncPending`); auto only covers the last 7 days, manual "Sync now" sends all. Resends are safe because the backend upserts by session_id. An unsynced session identical (`sessionSignature`) to a synced one is marked done, not uploaded; saving an identical workout twice asks first.
+
 ## Nutrition logging (current design -- do not revert to the old timeline)
 - 4 meal-type buckets: Breakfast / Lunch / Dinner / Snack (MEAL_TYPES, DEFAULT_MEAL_TYPE = "Lunch"). New/typed/estimated entries default to Lunch.
 - Drag the grip handle on a logged item to move it between buckets, via native Pointer Events (not HTML5 DnD).

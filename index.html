@@ -706,6 +706,13 @@ function buildDraft(templateKey) {
 }
 
 // ---------- sheet sync ----------
+// What was logged (not ids/timestamps), to spot the same workout saved twice.
+function sessionSignature(s) {
+  const exercises = (s.exercises || []).map(e => [e.name, (e.sets || []).filter(x => x.weight || x.reps).map(x => [x.weight, x.reps])]).filter(e => e[1].length);
+  const finisher = s.finisher ? [s.finisher.totalPush, s.finisher.totalPull] : null;
+  const wod = s.wod ? wodSignature(s.wod) + "|" + wodScoreText(s.wod) : null;
+  return JSON.stringify([s.date, exercises, finisher, wod]);
+}
 async function postToSheet(session, cfg) {
   if (!cfg || !cfg.url) return false;
   try {
@@ -3816,6 +3823,11 @@ function App() {
       flash("Log at least one set, the finisher, or a WOD before saving.");
       return;
     }
+    const sig = sessionSignature({
+      ...draft,
+      wod: draftWod
+    });
+    if (sessions.some(s => sessionSignature(s) === sig) && !window.confirm("You already saved this exact workout today. Save it again?")) return;
     setConfirmOpen(true);
   };
   const doSave = async () => {
@@ -3830,33 +3842,76 @@ function App() {
     };
     const next = [record, ...sessions].sort((a, b) => a.date < b.date ? 1 : -1);
     persist(next);
-    setDraft(buildDraft(templateKey));
-    setOpenNotes(new Set());
-    window.scrollTo(0, 0);
+    // Start the upload before anything else, so a problem resetting the screen can't stop it.
+    const upload = cfg.url ? postToSheet(record, cfg) : null;
+    try {
+      setDraft(buildDraft(templateKey));
+      setOpenNotes(new Set());
+      window.scrollTo(0, 0);
+    } catch (e) {
+      console.error(e);
+    }
     flash(cfg.url ? "Saved — syncing to Sheet…" : "Session saved.");
-    if (cfg.url) {
-      const ok = await postToSheet(record, cfg);
+    if (upload) {
+      const ok = await upload;
       markSynced(record.id, ok);
-      if (!ok) flash("Saved locally — Sheet sync pending (gear ▸ Sync).");else flash("Saved + synced to Sheet ✓");
+      flash(ok ? "Saved + synced to Sheet ✓" : "Saved on this phone; will sync to the Sheet automatically.");
     }
   };
-  const resyncAll = async () => {
+  // Sends every session not yet confirmed by the Sheet. Safe to repeat: the
+  // backend replaces a session's rows by session_id, so a resend never duplicates.
+  const syncingRef = useRef(false);
+  const syncPending = async (loud = false) => {
     if (!cfg.url) {
-      flash("Add your Sheet URL in Settings first.");
+      if (loud) flash("Add your Sheet URL in Settings first.");
       return;
     }
-    const pending = sessions.filter(s => !s.synced);
+    if (syncingRef.current) return;
+    const all = LS.get(STORAGE_KEY) || [];
+    // An unsynced copy identical to a synced session is a re-entry, not new work: mark it done.
+    const syncedSigs = new Set(all.filter(s => s.synced).map(sessionSignature));
+    all.filter(s => !s.synced && syncedSigs.has(sessionSignature(s))).forEach(s => markSynced(s.id, true));
+    // Automatic retries only cover the last week; older leftovers wait for a manual "Sync now".
+    const weekAgo = Date.now() - 7 * 86400000;
+    const pending = (LS.get(STORAGE_KEY) || []).filter(s => !s.synced && (loud || (s.savedAt || 0) >= weekAgo));
     if (!pending.length) {
-      flash("Everything's already synced.");
+      if (loud) flash("Everything's already synced.");
       return;
     }
-    flash(`Syncing ${pending.length}…`);
-    for (const s of pending) {
-      const ok = await postToSheet(s, cfg);
-      if (ok) markSynced(s.id, true);
+    syncingRef.current = true;
+    if (loud) flash(`Syncing ${pending.length}…`);
+    let done = 0;
+    try {
+      for (const s of pending) {
+        if (await postToSheet(s, cfg)) {
+          markSynced(s.id, true);
+          done++;
+        }
+      }
+    } finally {
+      syncingRef.current = false;
     }
-    flash("Re-sync done.");
+    if (done) flash(done === pending.length ? `Synced ${done} session${done > 1 ? "s" : ""} to Sheet ✓` : `Synced ${done} of ${pending.length}; will keep retrying.`);else if (loud) flash("Couldn't reach the Sheet; will keep retrying.");
   };
+  const resyncAll = () => syncPending(true);
+  const syncPendingRef = useRef(syncPending);
+  syncPendingRef.current = syncPending;
+  // Retry unsynced sessions on open, when the app comes back to the foreground
+  // or reconnects, and every 90s while it's open.
+  useEffect(() => {
+    const run = () => {
+      if (document.visibilityState === "visible") syncPendingRef.current();
+    };
+    run();
+    const id = setInterval(run, 90000);
+    document.addEventListener("visibilitychange", run);
+    window.addEventListener("online", run);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", run);
+      window.removeEventListener("online", run);
+    };
+  }, [cfg.url]);
   const loadDashboard = async () => {
     if (!cfg.url) {
       setDashError("Add your Sheet URL in Settings first.");
@@ -3976,6 +4031,10 @@ function App() {
   const doneSets = draft.exercises.reduce((a, e) => a + e.sets.filter(s => s.weight || s.reps).length, 0);
   const totalSets = draft.exercises.reduce((a, e) => a + e.sets.length, 0);
   const pendingCount = sessions.filter(s => !s.synced).length;
+  const syncNotice = cfg.url && pendingCount > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: resyncAll,
+    className: "w-full mt-2 text-[12px] text-[#A66CFF] font-semibold text-center"
+  }, `${pendingCount} session${pendingCount > 1 ? "s" : ""} waiting to sync to the Sheet · Sync now`);
   return /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen bg-[#141414] text-white",
     style: {
@@ -4464,7 +4523,7 @@ function App() {
   })), /*#__PURE__*/React.createElement("button", {
     onClick: requestSave,
     className: "bebas w-full mt-6 bg-[#A66CFF] text-[#141414] rounded-2xl py-3.5 text-xl tracking-[0.05em]"
-  }, "SAVE SESSION"), (!allTemplates[templateKey] || templateKey === "freestyle") && draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "SAVE SESSION"), syncNotice, (!allTemplates[templateKey] || templateKey === "freestyle") && draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: saveAsPreset,
     className: "bebas w-full mt-2 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-2xl py-3 text-lg tracking-[0.05em]"
   }, "SAVE WORKOUT"))), /*#__PURE__*/React.createElement("div", {
