@@ -41,3 +41,12 @@ Weight/reps inputs should default to a numeric keypad (inputMode=decimal/numeric
 - Pushes happen exclusively via local Claude Code -> GitHub -> Netlify auto-deploy.
 - GitHub auth: fine-grained PAT scoped to this repo only, Contents: Read/write.
 - Keep styling consistent with the dark theme tokens and "bebas" header class across the app.
+
+## RELEASE QUEUE -- waiting for Netlify credits (next reset Dec 1, 2026)
+Live-site deploys are paused until credits reset (14 left in Nov; one deploy = 15). Everything below is stacked on branch `claude/nice-planck-4qwzq5` in PR #3 (https://github.com/sjloper824/toast-performace-system-log/pull/3) and goes live with ONE merge.
+- [ ] Strength sync fix: upload starts before the form resets (save-crash on self-made workouts), auto-retry of unsynced sessions, re-entry dedupe, "waiting to sync · Sync now" notice.
+- [ ] Workout picker from the Sheet's Workouts tab + Rename / Remove / Save Workout in the app; phone-only presets (e.g. "[OS] Day B - Trap bar") copied into the Sheet on first load.
+- Merge-day checks: credits show reset in Netlify Usage -> merge PR #3 -> on the phone: picker lists the Sheet workouts, Day B appears in the Workouts tab, and a saved session shows up in the Strength tab within seconds.
+- Add new app changes to this same branch/PR and to this list; don't merge to main before Dec 1.
+Already live (no deploy needed): backend script Version 20 (Recommend name matching + similar movements, meal_type saving, Workouts endpoints, secrets in Script Properties), Sheet exercise-name cleanup, Workouts tab, Nutrition meal_type column.
+Backlog (no deploy needed, not started): stop the run importer filling Script Properties (it makes the settings page read-only); remove the duplicate Oct 1 run rows in Runs.
