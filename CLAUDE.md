@@ -1,5 +1,11 @@
 # Toast Performance System — Web App
 
+## How to reply to Steve (read first)
+- Keep replies short, in plain everyday language. Lead with the answer.
+- Give just enough context for each point to make sense on its own (e.g. not just "it's fixed", but what was fixed and where; not just "live Dec 1", but why it waits).
+- Skip technical detail (code, file names, tests) unless he asks. Offer more in one line if it might help.
+- Multi-step instructions: short overview, then one step at a time.
+
 ## Stack & architecture
 - Single-file React 18.3.1 app, no build step, loaded via CDN, all JSX written as React.createElement (no JSX transform).
 - Tailwind via CDN. Dark theme tokens: bg #09090b, panel #1f1f1f, inset #141414, accent #A66CFF (purple).
