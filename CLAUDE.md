@@ -14,10 +14,18 @@
 - Before committing: extract the <script>...</script> body and run `node --check` on it to catch syntax errors. Nested React.createElement calls are easy to miscount parens on -- prefer breaking large render blocks into small named intermediate variables rather than one giant nested expression.
 
 ## Backend
-- Google Apps Script web app at cfg.url with cfg.token.
-- GET via `tab` query param: no tab/date = strength log, tab=recap, tab=nutrition&date=X (single day), tab=nutrition alone (full history, used for suggestions), tab=weight.
-- POST with JSON body: {token, session} | {token, meal} | {token, weight} | {token, deleteMeal}.
-- Known gap: no access to the Apps Script source from the cloud assistant side. Can't directly confirm it persists/returns a meal_type column, or that tab=nutrition (no date) genuinely returns full history.
+- Google Apps Script web app at cfg.url with cfg.token. Source of truth: `apps-script/Code.gs` in this repo (bound to the "Toast Performance System Log" Sheet). The user pastes it into Extensions ▸ Apps Script and redeploys (Manage deployments ▸ edit ▸ New version) — laptop only. Not served by the app; editing it costs no Netlify credits.
+- Secrets live in Script Properties (TOKEN, ANTHROPIC_API_KEY), never in the code — this repo is public. Missing TOKEN = every request refused.
+- GET via `tab` query param: no tab/date = strength log, tab=recap, tab=nutrition&date=X (single day), tab=nutrition alone (full history), tab=weight, tab=workouts. GET action=recommend|estimate|build calls Claude.
+- POST with JSON body: {token, session} | {token, meal} | {token, weight} | {token, deleteMeal} | {token, saveWorkout|renameWorkout|deleteWorkout}.
+- Nutrition tab has a meal_type column (added Nov 2026; earlier rows are blank → show as Lunch).
+- Recommend matches history by normalized movement name (case/plural/"dumbbell"→db etc.) and, when an exercise has <2 dated sessions, adds up to 2 similar movements as a guide.
+- Workouts tab = the app's workout picker: one row per movement (workout_id, workout, exercise, target, sets, per_side). Rows without an id are keyed "sheet:<title>" by both app and script. If the backend doesn't serve it, the app falls back to built-in TEMPLATES + local presets.
+
+## Strength sync (app -> Sheet)
+- POST text/plain to the web app; Apps Script answers 302 -> googleusercontent JSON, which fetch follows and can read (`postToSheet` checks `data.ok`). Not an opaque/no-cors call.
+- doSave starts the upload before resetting the draft (a draft-reset crash for non-built-in workouts used to skip the upload entirely — fixed Nov 2026).
+- Unsynced sessions auto-retry on open, on foreground/online, and every 90s (`syncPending`); auto only covers the last 7 days, manual "Sync now" sends all. Resends are safe because the backend upserts by session_id. An unsynced session identical (`sessionSignature`) to a synced one is marked done, not uploaded; saving an identical workout twice asks first.
 
 ## Nutrition logging (current design -- do not revert to the old timeline)
 - 4 meal-type buckets: Breakfast / Lunch / Dinner / Snack (MEAL_TYPES, DEFAULT_MEAL_TYPE = "Lunch"). New/typed/estimated entries default to Lunch.

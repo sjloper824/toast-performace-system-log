@@ -336,6 +336,7 @@ const DRAFTK_KEY = "toast:draftKey";
 const SEED_FLAG = "toast:seeded_v1";
 const CFG_KEY = "toast:cfg";
 const PRESETS_KEY = "toast:presets";
+const SHEET_WORKOUTS_KEY = "toast:sheetWorkouts";
 const PUSH = "#A66CFF";
 const PULL = "#FF6FA5";
 const today = () => {
@@ -696,11 +697,22 @@ function buildDraftFromTemplate(t) {
     }))
   };
 }
+// Any picker key — built-in, saved preset or Sheet workout — falls back to the
+// blank workout, so a key that no longer exists can't crash the draft reset.
 function buildDraft(templateKey) {
-  return buildDraftFromTemplate(TEMPLATES[templateKey]);
+  const fromSheet = (LS.get(SHEET_WORKOUTS_KEY) || []).find(w => w.id === templateKey);
+  const t = fromSheet || (LS.get(PRESETS_KEY) || {})[templateKey] || TEMPLATES[templateKey] || TEMPLATES.freestyle;
+  return buildDraftFromTemplate(t);
 }
 
 // ---------- sheet sync ----------
+// What was logged (not ids/timestamps), to spot the same workout saved twice.
+function sessionSignature(s) {
+  const exercises = (s.exercises || []).map(e => [e.name, (e.sets || []).filter(x => x.weight || x.reps).map(x => [x.weight, x.reps])]).filter(e => e[1].length);
+  const finisher = s.finisher ? [s.finisher.totalPush, s.finisher.totalPull] : null;
+  const wod = s.wod ? wodSignature(s.wod) + "|" + wodScoreText(s.wod) : null;
+  return JSON.stringify([s.date, exercises, finisher, wod]);
+}
 async function postToSheet(session, cfg) {
   if (!cfg || !cfg.url) return false;
   try {
@@ -932,6 +944,67 @@ async function fetchWeights(cfg) {
     date: r.date,
     lb: Number(r.lb) || 0
   })).filter(w => w.lb > 0);
+}
+// Workouts tab: one row per movement, grouped by workout_id (or by title when a
+// hand-added row has no id — the backend uses the same "sheet:<title>" rule).
+function workoutsFromRows(rows) {
+  const byId = new Map();
+  rows.forEach(r => {
+    const title = String(r.workout ?? "").trim();
+    const id = String(r.workout_id ?? "").trim() || (title ? "sheet:" + title : "");
+    if (!id) return;
+    let w = byId.get(id);
+    if (!w) {
+      w = {
+        id,
+        label: title,
+        exercises: []
+      };
+      byId.set(id, w);
+    }
+    if (!w.label && title) w.label = title;
+    const name = String(r.exercise ?? "").trim();
+    if (name) w.exercises.push({
+      name,
+      target: String(r.target ?? ""),
+      sets: parseInt(r.sets, 10) || 3,
+      perSide: r.per_side === true || String(r.per_side).toLowerCase() === "true"
+    });
+  });
+  return [...byId.values()].map(w => ({
+    ...w,
+    label: w.label || "Untitled workout"
+  }));
+}
+// null = the backend doesn't serve the Workouts tab (older script), so keep the built-in list.
+async function fetchWorkouts(cfg) {
+  if (!cfg.url) return null;
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}tab=workouts&token=${encodeURIComponent(cfg.token || "")}`;
+  const d = await (await fetch(url, {
+    method: "GET"
+  })).json();
+  if (!d.ok || !Array.isArray(d.rows)) return null;
+  if (d.rows.length && !("workout" in d.rows[0])) return null;
+  return workoutsFromRows(d.rows);
+}
+async function postWorkoutChange(cfg, change) {
+  try {
+    const res = await fetch(cfg.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify({
+        token: cfg.token || "",
+        ...change
+      }),
+      redirect: "follow"
+    });
+    const d = await res.json();
+    return !!(d && d.ok);
+  } catch (e) {
+    return false;
+  }
 }
 function postMeal(cfg, meal) {
   if (!cfg.url) return;
@@ -2802,6 +2875,55 @@ function App() {
     if (!cfg.url) return;
     fetchSheetRows(cfg).then(rows => setSheetSessions(rowsToSessions(rows))).catch(() => {});
   }, [cfg.url]);
+  // Workout picker list from the Sheet's Workouts tab (cached for offline/instant start).
+  const [sheetWorkouts, setSheetWorkoutsState] = useState(() => LS.get(SHEET_WORKOUTS_KEY));
+  const setSheetWorkouts = list => {
+    setSheetWorkoutsState(list);
+    LS.set(SHEET_WORKOUTS_KEY, list);
+  };
+  useEffect(() => {
+    if (!cfg.url) return;
+    fetchWorkouts(cfg).then(async list => {
+      if (!list) return;
+      // One-time move of presets saved on this phone into the Sheet.
+      const labels = new Set(list.map(w => w.label));
+      const local = LS.get(PRESETS_KEY) || {};
+      const moved = [];
+      const remap = {};
+      for (const [id, p] of Object.entries(local)) {
+        if (labels.has(p.label)) {
+          remap[id] = list.find(w => w.label === p.label).id;
+          moved.push(id);
+          continue;
+        }
+        const ok = await postWorkoutChange(cfg, {
+          saveWorkout: {
+            id,
+            name: p.label,
+            exercises: p.exercises || []
+          }
+        });
+        if (ok) {
+          list.push({
+            id,
+            label: p.label,
+            exercises: p.exercises || []
+          });
+          moved.push(id);
+        }
+      }
+      setSheetWorkouts(list);
+      if (moved.length) {
+        const rest = {
+          ...local
+        };
+        moved.forEach(id => delete rest[id]);
+        setCustomPresets(rest);
+        LS.set(PRESETS_KEY, rest);
+        setTemplateKey(k => remap[k] || k);
+      }
+    }).catch(() => {});
+  }, [cfg.url]);
   // date always tracks today (no manual date picker); keeps the Sheet log accurate
   useEffect(() => {
     if (draft.date !== today()) setDraft(d => ({
@@ -2835,10 +2957,17 @@ function App() {
     const topSet = top != null ? done.find(s => parseFloat(s.weight) === top) : done[0];
     return `${prior.date} · top ${topSet.weight || "BW"} × ${topSet.reps || "?"}`;
   }, [sessions]);
-  const allTemplates = {
+  const sheetMode = !!cfg.url && Array.isArray(sheetWorkouts) && sheetWorkouts.length > 0;
+  const allTemplates = sheetMode ? {
+    ...Object.fromEntries(sheetWorkouts.map(w => [w.id, w])),
+    ...customPresets,
+    freestyle: TEMPLATES.freestyle
+  } : {
     ...TEMPLATES,
     ...customPresets
   };
+  const inSheet = key => sheetMode && sheetWorkouts.some(w => w.id === key);
+  const canEditWorkout = key => key !== "freestyle" && (!!customPresets[key] || inSheet(key));
   const swapTemplate = key => {
     const t = allTemplates[key];
     if (!t) return;
@@ -2975,7 +3104,7 @@ function App() {
     };
   }, [builderOpen]);
   // save the current workout structure as a reusable preset (no code push needed)
-  const saveAsPreset = () => {
+  const saveAsPreset = async () => {
     if (!draft.exercises.length) {
       flash("Add or build some exercises first.");
       return;
@@ -2992,25 +3121,97 @@ function App() {
         perSide: !!e.perSide
       }))
     };
+    setDraft(d => ({
+      ...d,
+      type: name
+    }));
+    if (sheetMode) {
+      const ok = await postWorkoutChange(cfg, {
+        saveWorkout: {
+          id: key,
+          name,
+          exercises: preset.exercises
+        }
+      });
+      if (!ok) {
+        flash("Couldn't save to the Sheet — check your connection.");
+        return;
+      }
+      setSheetWorkouts([...sheetWorkouts, {
+        id: key,
+        ...preset
+      }]);
+      setTemplateKey(key);
+      flash("Saved to your Workouts tab.");
+      return;
+    }
     saveCustomPresets({
       ...customPresets,
       [key]: preset
     });
     setTemplateKey(key);
-    setDraft(d => ({
-      ...d,
-      type: name
-    }));
     flash("Saved to your workout list.");
   };
-  const deletePreset = key => {
-    const p = {
-      ...customPresets
-    };
-    delete p[key];
-    saveCustomPresets(p);
-    swapTemplate("lower");
-    flash("Preset removed.");
+  const deletePreset = async key => {
+    const label = allTemplates[key] ? allTemplates[key].label : "this workout";
+    if (!window.confirm(`Remove "${label}" from your workout list?`)) return;
+    if (inSheet(key)) {
+      const ok = await postWorkoutChange(cfg, {
+        deleteWorkout: {
+          id: key
+        }
+      });
+      if (!ok) {
+        flash("Couldn't remove it from the Sheet — check your connection.");
+        return;
+      }
+      setSheetWorkouts(sheetWorkouts.filter(w => w.id !== key));
+    } else {
+      const p = {
+        ...customPresets
+      };
+      delete p[key];
+      saveCustomPresets(p);
+    }
+    const next = Object.keys(allTemplates).find(k => k !== key) || "freestyle";
+    swapTemplate(next);
+    flash("Workout removed.");
+  };
+  // Renames the workout everywhere it's listed; sessions already logged keep the old name.
+  const renameWorkout = async key => {
+    const cur = allTemplates[key];
+    if (!cur) return;
+    const name = (window.prompt("Rename this workout:", cur.label) || "").trim();
+    if (!name || name === cur.label) return;
+    if (inSheet(key)) {
+      const ok = await postWorkoutChange(cfg, {
+        renameWorkout: {
+          id: key,
+          name
+        }
+      });
+      if (!ok) {
+        flash("Couldn't rename it in the Sheet — check your connection.");
+        return;
+      }
+      setSheetWorkouts(sheetWorkouts.map(w => w.id === key ? {
+        ...w,
+        label: name
+      } : w));
+    } else {
+      saveCustomPresets({
+        ...customPresets,
+        [key]: {
+          ...customPresets[key],
+          label: name
+        }
+      });
+    }
+    if (key === templateKey) setDraft(d => d.type === cur.label ? {
+      ...d,
+      type: name
+    } : d);
+    flash("Workout renamed.");
   };
   const setField = (k, v) => setDraft(d => ({
     ...d,
@@ -3104,7 +3305,7 @@ function App() {
       seenSessions.add(s.id);
       (s.exercises || []).forEach(e => bump(e.name, 1));
     });
-    [...Object.values(TEMPLATES), ...Object.values(customPresets)].forEach(t => (t && t.exercises || []).forEach(e => bump(e.name, 0)));
+    Object.values(allTemplates).forEach(t => (t && t.exercises || []).forEach(e => bump(e.name, 0)));
     return [...byKey.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   })();
   const movementSuggestions = ex => {
@@ -3133,6 +3334,18 @@ function App() {
     });
     return out.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
   })();
+  const workoutActionBtn = "text-[11px] text-white/40 font-semibold";
+  const workoutActions = canEditWorkout(templateKey) && /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-4 mt-1.5"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => renameWorkout(templateKey),
+    className: workoutActionBtn
+  }, "Rename"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => deletePreset(templateKey),
+    className: workoutActionBtn
+  }, "Remove"), sheetMode && /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] text-white/25"
+  }, "Edit movements in the Sheet's Workouts tab"));
   const pickMovement = (exId, name) => {
     renameExercise(exId, name);
     setNameFocusId(null);
@@ -3610,6 +3823,11 @@ function App() {
       flash("Log at least one set, the finisher, or a WOD before saving.");
       return;
     }
+    const sig = sessionSignature({
+      ...draft,
+      wod: draftWod
+    });
+    if (sessions.some(s => sessionSignature(s) === sig) && !window.confirm("You already saved this exact workout today. Save it again?")) return;
     setConfirmOpen(true);
   };
   const doSave = async () => {
@@ -3624,33 +3842,76 @@ function App() {
     };
     const next = [record, ...sessions].sort((a, b) => a.date < b.date ? 1 : -1);
     persist(next);
-    setDraft(buildDraft(templateKey));
-    setOpenNotes(new Set());
-    window.scrollTo(0, 0);
+    // Start the upload before anything else, so a problem resetting the screen can't stop it.
+    const upload = cfg.url ? postToSheet(record, cfg) : null;
+    try {
+      setDraft(buildDraft(templateKey));
+      setOpenNotes(new Set());
+      window.scrollTo(0, 0);
+    } catch (e) {
+      console.error(e);
+    }
     flash(cfg.url ? "Saved — syncing to Sheet…" : "Session saved.");
-    if (cfg.url) {
-      const ok = await postToSheet(record, cfg);
+    if (upload) {
+      const ok = await upload;
       markSynced(record.id, ok);
-      if (!ok) flash("Saved locally — Sheet sync pending (gear ▸ Sync).");else flash("Saved + synced to Sheet ✓");
+      flash(ok ? "Saved + synced to Sheet ✓" : "Saved on this phone; will sync to the Sheet automatically.");
     }
   };
-  const resyncAll = async () => {
+  // Sends every session not yet confirmed by the Sheet. Safe to repeat: the
+  // backend replaces a session's rows by session_id, so a resend never duplicates.
+  const syncingRef = useRef(false);
+  const syncPending = async (loud = false) => {
     if (!cfg.url) {
-      flash("Add your Sheet URL in Settings first.");
+      if (loud) flash("Add your Sheet URL in Settings first.");
       return;
     }
-    const pending = sessions.filter(s => !s.synced);
+    if (syncingRef.current) return;
+    const all = LS.get(STORAGE_KEY) || [];
+    // An unsynced copy identical to a synced session is a re-entry, not new work: mark it done.
+    const syncedSigs = new Set(all.filter(s => s.synced).map(sessionSignature));
+    all.filter(s => !s.synced && syncedSigs.has(sessionSignature(s))).forEach(s => markSynced(s.id, true));
+    // Automatic retries only cover the last week; older leftovers wait for a manual "Sync now".
+    const weekAgo = Date.now() - 7 * 86400000;
+    const pending = (LS.get(STORAGE_KEY) || []).filter(s => !s.synced && (loud || (s.savedAt || 0) >= weekAgo));
     if (!pending.length) {
-      flash("Everything's already synced.");
+      if (loud) flash("Everything's already synced.");
       return;
     }
-    flash(`Syncing ${pending.length}…`);
-    for (const s of pending) {
-      const ok = await postToSheet(s, cfg);
-      if (ok) markSynced(s.id, true);
+    syncingRef.current = true;
+    if (loud) flash(`Syncing ${pending.length}…`);
+    let done = 0;
+    try {
+      for (const s of pending) {
+        if (await postToSheet(s, cfg)) {
+          markSynced(s.id, true);
+          done++;
+        }
+      }
+    } finally {
+      syncingRef.current = false;
     }
-    flash("Re-sync done.");
+    if (done) flash(done === pending.length ? `Synced ${done} session${done > 1 ? "s" : ""} to Sheet ✓` : `Synced ${done} of ${pending.length}; will keep retrying.`);else if (loud) flash("Couldn't reach the Sheet; will keep retrying.");
   };
+  const resyncAll = () => syncPending(true);
+  const syncPendingRef = useRef(syncPending);
+  syncPendingRef.current = syncPending;
+  // Retry unsynced sessions on open, when the app comes back to the foreground
+  // or reconnects, and every 90s while it's open.
+  useEffect(() => {
+    const run = () => {
+      if (document.visibilityState === "visible") syncPendingRef.current();
+    };
+    run();
+    const id = setInterval(run, 90000);
+    document.addEventListener("visibilitychange", run);
+    window.addEventListener("online", run);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", run);
+      window.removeEventListener("online", run);
+    };
+  }, [cfg.url]);
   const loadDashboard = async () => {
     if (!cfg.url) {
       setDashError("Add your Sheet URL in Settings first.");
@@ -3770,6 +4031,10 @@ function App() {
   const doneSets = draft.exercises.reduce((a, e) => a + e.sets.filter(s => s.weight || s.reps).length, 0);
   const totalSets = draft.exercises.reduce((a, e) => a + e.sets.length, 0);
   const pendingCount = sessions.filter(s => !s.synced).length;
+  const syncNotice = cfg.url && pendingCount > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: resyncAll,
+    className: "w-full mt-2 text-[12px] text-[#A66CFF] font-semibold text-center"
+  }, `${pendingCount} session${pendingCount > 1 ? "s" : ""} waiting to sync to the Sheet · Sync now`);
   return /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen bg-[#141414] text-white",
     style: {
@@ -4085,10 +4350,7 @@ function App() {
   }, "▾")), /*#__PURE__*/React.createElement("button", {
     onClick: openBuilder,
     className: "bebas shrink-0 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-xl px-4 text-sm tracking-[0.03em] whitespace-nowrap"
-  }, "BUILD A WORKOUT")), customPresets[templateKey] && /*#__PURE__*/React.createElement("button", {
-    onClick: () => deletePreset(templateKey),
-    className: "text-[11px] text-white/40 mt-1"
-  }, "Remove this preset")), draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "BUILD A WORKOUT")), workoutActions), draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: getRecommendations,
     disabled: recLoading,
     className: "bebas w-full mb-5 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-2xl py-3.5 text-base tracking-[0.06em] disabled:opacity-50"
@@ -4261,7 +4523,7 @@ function App() {
   })), /*#__PURE__*/React.createElement("button", {
     onClick: requestSave,
     className: "bebas w-full mt-6 bg-[#A66CFF] text-[#141414] rounded-2xl py-3.5 text-xl tracking-[0.05em]"
-  }, "SAVE SESSION"), (!allTemplates[templateKey] || templateKey === "freestyle") && draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "SAVE SESSION"), syncNotice, (!allTemplates[templateKey] || templateKey === "freestyle") && draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: saveAsPreset,
     className: "bebas w-full mt-2 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-2xl py-3 text-lg tracking-[0.05em]"
   }, "SAVE WORKOUT"))), /*#__PURE__*/React.createElement("div", {
