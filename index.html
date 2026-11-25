@@ -336,6 +336,7 @@ const DRAFTK_KEY = "toast:draftKey";
 const SEED_FLAG = "toast:seeded_v1";
 const CFG_KEY = "toast:cfg";
 const PRESETS_KEY = "toast:presets";
+const SHEET_WORKOUTS_KEY = "toast:sheetWorkouts";
 const PUSH = "#A66CFF";
 const PULL = "#FF6FA5";
 const today = () => {
@@ -696,11 +697,22 @@ function buildDraftFromTemplate(t) {
     }))
   };
 }
+// Any picker key — built-in, saved preset or Sheet workout — falls back to the
+// blank workout, so a key that no longer exists can't crash the draft reset.
 function buildDraft(templateKey) {
-  return buildDraftFromTemplate(TEMPLATES[templateKey]);
+  const fromSheet = (LS.get(SHEET_WORKOUTS_KEY) || []).find(w => w.id === templateKey);
+  const t = fromSheet || (LS.get(PRESETS_KEY) || {})[templateKey] || TEMPLATES[templateKey] || TEMPLATES.freestyle;
+  return buildDraftFromTemplate(t);
 }
 
 // ---------- sheet sync ----------
+// What was logged (not ids/timestamps), to spot the same workout saved twice.
+function sessionSignature(s) {
+  const exercises = (s.exercises || []).map(e => [e.name, (e.sets || []).filter(x => x.weight || x.reps).map(x => [x.weight, x.reps])]).filter(e => e[1].length);
+  const finisher = s.finisher ? [s.finisher.totalPush, s.finisher.totalPull] : null;
+  const wod = s.wod ? wodSignature(s.wod) + "|" + wodScoreText(s.wod) : null;
+  return JSON.stringify([s.date, exercises, finisher, wod]);
+}
 async function postToSheet(session, cfg) {
   if (!cfg || !cfg.url) return false;
   try {
@@ -932,6 +944,138 @@ async function fetchWeights(cfg) {
     date: r.date,
     lb: Number(r.lb) || 0
   })).filter(w => w.lb > 0);
+}
+// Workouts tab: one row per movement, grouped by workout_id (or by title when a
+// hand-added row has no id — the backend uses the same "sheet:<title>" rule).
+function workoutsFromRows(rows) {
+  const byId = new Map();
+  rows.forEach(r => {
+    const title = String(r.workout ?? "").trim();
+    const id = String(r.workout_id ?? "").trim() || (title ? "sheet:" + title : "");
+    if (!id) return;
+    let w = byId.get(id);
+    if (!w) {
+      w = {
+        id,
+        label: title,
+        exercises: []
+      };
+      byId.set(id, w);
+    }
+    if (!w.label && title) w.label = title;
+    const name = String(r.exercise ?? "").trim();
+    if (name) w.exercises.push({
+      name,
+      target: String(r.target ?? ""),
+      sets: parseInt(r.sets, 10) || 3,
+      perSide: r.per_side === true || String(r.per_side).toLowerCase() === "true"
+    });
+  });
+  return [...byId.values()].map(w => ({
+    ...w,
+    label: w.label || "Untitled workout"
+  }));
+}
+// null = the backend doesn't serve the Workouts tab (older script), so keep the built-in list.
+async function fetchWorkouts(cfg) {
+  if (!cfg.url) return null;
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}tab=workouts&token=${encodeURIComponent(cfg.token || "")}`;
+  const d = await (await fetch(url, {
+    method: "GET"
+  })).json();
+  if (!d.ok || !Array.isArray(d.rows)) return null;
+  if (d.rows.length && !("workout" in d.rows[0])) return null;
+  return workoutsFromRows(d.rows);
+}
+// Rows of any backend tab, or null if the backend doesn't serve it (older script
+// falls back to the Strength tab, recognised by a missing expected column).
+async function fetchTab(cfg, tab, expectKey) {
+  if (!cfg.url) return null;
+  const url = `${cfg.url}${cfg.url.includes("?") ? "&" : "?"}tab=${tab}&token=${encodeURIComponent(cfg.token || "")}`;
+  const d = await (await fetch(url, {
+    method: "GET"
+  })).json();
+  if (!d.ok || !Array.isArray(d.rows)) return null;
+  if (expectKey && d.rows.length && !(expectKey in d.rows[0])) return null;
+  return d.rows;
+}
+const isoDate = v => {
+  const s = String(v || "");
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? "" : d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+};
+const addDaysIso = (iso, n) => {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return isoDate(d);
+};
+// Split on `sep` only outside parentheses, so "(beat 5,4,2; under 3: ...)" stays whole.
+function splitTopLevel(s, sep) {
+  const out = [];
+  let depth = 0,
+    cur = "";
+  for (const ch of s) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth = Math.max(0, depth - 1);
+    if (ch === sep && depth === 0) {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  out.push(cur);
+  return out.map(x => x.trim()).filter(Boolean);
+}
+// Plan prescriptions are written like "trap bar deadlift 3x6 @ 285; single-arm cable
+// row 3x10 each @ 110 + face pull 3x12 @ 110; push/pull ladder 10 min. All lb."
+function parsePrescription(text) {
+  const clean = String(text || "").replace(/\bAll (weights in )?lb\.?/gi, "").trim();
+  const exercises = [],
+    extras = [];
+  splitTopLevel(clean, ";").forEach(part => {
+    part.split(/\s+\+\s+|\s+alternated with\s+/i).forEach(chunk => {
+      const c = chunk.trim().replace(/\.$/, "");
+      if (!c) return;
+      const m = c.match(/^(.*?)\s+(\d+)\s*[x×]\s*(\d+(?:\s*-\s*\d+)?)(\s+each)?(?:\s*@\s*([\d.]+)(?:\s*-\s*([\d.]+))?s?)?\s*(.*)$/i);
+      if (!m || !m[1].trim()) {
+        extras.push(c);
+        return;
+      }
+      exercises.push({
+        name: m[1].trim(),
+        sets: Math.min(10, +m[2]),
+        reps: m[3].replace(/\s/g, ""),
+        perSide: !!m[4],
+        weight: m[5] || "",
+        weightHigh: m[6] || "",
+        cue: m[7].replace(/^[,\s(]+|[)\s]+$/g, "").trim()
+      });
+    });
+  });
+  return {
+    exercises,
+    extras
+  };
+}
+const isLiftingSession = (row, parsed) => !!row && parsed.exercises.length >= 2 && !/\b(run|rest|crossfit|wod|amrap|cardio|elliptical|bike)\b/i.test(row.session || "");
+async function postWorkoutChange(cfg, change) {
+  try {
+    const res = await fetch(cfg.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify({
+        token: cfg.token || "",
+        ...change
+      }),
+      redirect: "follow"
+    });
+    const d = await res.json();
+    return !!(d && d.ok);
+  } catch (e) {
+    return false;
+  }
 }
 function postMeal(cfg, meal) {
   if (!cfg.url) return;
@@ -2688,7 +2832,7 @@ function App() {
   const bInputRef = useRef(null);
   const [toast, setToast] = useState("");
   const [openNotes, setOpenNotes] = useState(() => new Set());
-  const [view, setView] = useState("workouts"); // "workouts" | "dashboard" | "settings"
+  const [view, setView] = useState("today"); // "today" | "workouts" | "nutrition" | "settings"
   const [menuOpen, setMenuOpen] = useState(false);
   const [dashSessions, setDashSessions] = useState(null);
   const [dashRecap, setDashRecap] = useState(null);
@@ -2802,6 +2946,55 @@ function App() {
     if (!cfg.url) return;
     fetchSheetRows(cfg).then(rows => setSheetSessions(rowsToSessions(rows))).catch(() => {});
   }, [cfg.url]);
+  // Workout picker list from the Sheet's Workouts tab (cached for offline/instant start).
+  const [sheetWorkouts, setSheetWorkoutsState] = useState(() => LS.get(SHEET_WORKOUTS_KEY));
+  const setSheetWorkouts = list => {
+    setSheetWorkoutsState(list);
+    LS.set(SHEET_WORKOUTS_KEY, list);
+  };
+  useEffect(() => {
+    if (!cfg.url) return;
+    fetchWorkouts(cfg).then(async list => {
+      if (!list) return;
+      // One-time move of presets saved on this phone into the Sheet.
+      const labels = new Set(list.map(w => w.label));
+      const local = LS.get(PRESETS_KEY) || {};
+      const moved = [];
+      const remap = {};
+      for (const [id, p] of Object.entries(local)) {
+        if (labels.has(p.label)) {
+          remap[id] = list.find(w => w.label === p.label).id;
+          moved.push(id);
+          continue;
+        }
+        const ok = await postWorkoutChange(cfg, {
+          saveWorkout: {
+            id,
+            name: p.label,
+            exercises: p.exercises || []
+          }
+        });
+        if (ok) {
+          list.push({
+            id,
+            label: p.label,
+            exercises: p.exercises || []
+          });
+          moved.push(id);
+        }
+      }
+      setSheetWorkouts(list);
+      if (moved.length) {
+        const rest = {
+          ...local
+        };
+        moved.forEach(id => delete rest[id]);
+        setCustomPresets(rest);
+        LS.set(PRESETS_KEY, rest);
+        setTemplateKey(k => remap[k] || k);
+      }
+    }).catch(() => {});
+  }, [cfg.url]);
   // date always tracks today (no manual date picker); keeps the Sheet log accurate
   useEffect(() => {
     if (draft.date !== today()) setDraft(d => ({
@@ -2835,10 +3028,17 @@ function App() {
     const topSet = top != null ? done.find(s => parseFloat(s.weight) === top) : done[0];
     return `${prior.date} · top ${topSet.weight || "BW"} × ${topSet.reps || "?"}`;
   }, [sessions]);
-  const allTemplates = {
+  const sheetMode = !!cfg.url && Array.isArray(sheetWorkouts) && sheetWorkouts.length > 0;
+  const allTemplates = sheetMode ? {
+    ...Object.fromEntries(sheetWorkouts.map(w => [w.id, w])),
+    ...customPresets,
+    freestyle: TEMPLATES.freestyle
+  } : {
     ...TEMPLATES,
     ...customPresets
   };
+  const inSheet = key => sheetMode && sheetWorkouts.some(w => w.id === key);
+  const canEditWorkout = key => key !== "freestyle" && (!!customPresets[key] || inSheet(key));
   const swapTemplate = key => {
     const t = allTemplates[key];
     if (!t) return;
@@ -2975,7 +3175,7 @@ function App() {
     };
   }, [builderOpen]);
   // save the current workout structure as a reusable preset (no code push needed)
-  const saveAsPreset = () => {
+  const saveAsPreset = async () => {
     if (!draft.exercises.length) {
       flash("Add or build some exercises first.");
       return;
@@ -2992,25 +3192,97 @@ function App() {
         perSide: !!e.perSide
       }))
     };
+    setDraft(d => ({
+      ...d,
+      type: name
+    }));
+    if (sheetMode) {
+      const ok = await postWorkoutChange(cfg, {
+        saveWorkout: {
+          id: key,
+          name,
+          exercises: preset.exercises
+        }
+      });
+      if (!ok) {
+        flash("Couldn't save to the Sheet — check your connection.");
+        return;
+      }
+      setSheetWorkouts([...sheetWorkouts, {
+        id: key,
+        ...preset
+      }]);
+      setTemplateKey(key);
+      flash("Saved to your Workouts tab.");
+      return;
+    }
     saveCustomPresets({
       ...customPresets,
       [key]: preset
     });
     setTemplateKey(key);
-    setDraft(d => ({
-      ...d,
-      type: name
-    }));
     flash("Saved to your workout list.");
   };
-  const deletePreset = key => {
-    const p = {
-      ...customPresets
-    };
-    delete p[key];
-    saveCustomPresets(p);
-    swapTemplate("lower");
-    flash("Preset removed.");
+  const deletePreset = async key => {
+    const label = allTemplates[key] ? allTemplates[key].label : "this workout";
+    if (!window.confirm(`Remove "${label}" from your workout list?`)) return;
+    if (inSheet(key)) {
+      const ok = await postWorkoutChange(cfg, {
+        deleteWorkout: {
+          id: key
+        }
+      });
+      if (!ok) {
+        flash("Couldn't remove it from the Sheet — check your connection.");
+        return;
+      }
+      setSheetWorkouts(sheetWorkouts.filter(w => w.id !== key));
+    } else {
+      const p = {
+        ...customPresets
+      };
+      delete p[key];
+      saveCustomPresets(p);
+    }
+    const next = Object.keys(allTemplates).find(k => k !== key) || "freestyle";
+    swapTemplate(next);
+    flash("Workout removed.");
+  };
+  // Renames the workout everywhere it's listed; sessions already logged keep the old name.
+  const renameWorkout = async key => {
+    const cur = allTemplates[key];
+    if (!cur) return;
+    const name = (window.prompt("Rename this workout:", cur.label) || "").trim();
+    if (!name || name === cur.label) return;
+    if (inSheet(key)) {
+      const ok = await postWorkoutChange(cfg, {
+        renameWorkout: {
+          id: key,
+          name
+        }
+      });
+      if (!ok) {
+        flash("Couldn't rename it in the Sheet — check your connection.");
+        return;
+      }
+      setSheetWorkouts(sheetWorkouts.map(w => w.id === key ? {
+        ...w,
+        label: name
+      } : w));
+    } else {
+      saveCustomPresets({
+        ...customPresets,
+        [key]: {
+          ...customPresets[key],
+          label: name
+        }
+      });
+    }
+    if (key === templateKey) setDraft(d => d.type === cur.label ? {
+      ...d,
+      type: name
+    } : d);
+    flash("Workout renamed.");
   };
   const setField = (k, v) => setDraft(d => ({
     ...d,
@@ -3104,7 +3376,7 @@ function App() {
       seenSessions.add(s.id);
       (s.exercises || []).forEach(e => bump(e.name, 1));
     });
-    [...Object.values(TEMPLATES), ...Object.values(customPresets)].forEach(t => (t && t.exercises || []).forEach(e => bump(e.name, 0)));
+    Object.values(allTemplates).forEach(t => (t && t.exercises || []).forEach(e => bump(e.name, 0)));
     return [...byKey.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   })();
   const movementSuggestions = ex => {
@@ -3133,6 +3405,18 @@ function App() {
     });
     return out.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
   })();
+  const workoutActionBtn = "text-[11px] text-white/40 font-semibold";
+  const workoutActions = canEditWorkout(templateKey) && /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-4 mt-1.5"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => renameWorkout(templateKey),
+    className: workoutActionBtn
+  }, "Rename"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => deletePreset(templateKey),
+    className: workoutActionBtn
+  }, "Remove"), sheetMode && /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] text-white/25"
+  }, "Edit movements in the Sheet's Workouts tab"));
   const pickMovement = (exId, name) => {
     renameExercise(exId, name);
     setNameFocusId(null);
@@ -3610,6 +3894,11 @@ function App() {
       flash("Log at least one set, the finisher, or a WOD before saving.");
       return;
     }
+    const sig = sessionSignature({
+      ...draft,
+      wod: draftWod
+    });
+    if (sessions.some(s => sessionSignature(s) === sig) && !window.confirm("You already saved this exact workout today. Save it again?")) return;
     setConfirmOpen(true);
   };
   const doSave = async () => {
@@ -3624,33 +3913,76 @@ function App() {
     };
     const next = [record, ...sessions].sort((a, b) => a.date < b.date ? 1 : -1);
     persist(next);
-    setDraft(buildDraft(templateKey));
-    setOpenNotes(new Set());
-    window.scrollTo(0, 0);
+    // Start the upload before anything else, so a problem resetting the screen can't stop it.
+    const upload = cfg.url ? postToSheet(record, cfg) : null;
+    try {
+      setDraft(buildDraft(templateKey));
+      setOpenNotes(new Set());
+      window.scrollTo(0, 0);
+    } catch (e) {
+      console.error(e);
+    }
     flash(cfg.url ? "Saved — syncing to Sheet…" : "Session saved.");
-    if (cfg.url) {
-      const ok = await postToSheet(record, cfg);
+    if (upload) {
+      const ok = await upload;
       markSynced(record.id, ok);
-      if (!ok) flash("Saved locally — Sheet sync pending (gear ▸ Sync).");else flash("Saved + synced to Sheet ✓");
+      flash(ok ? "Saved + synced to Sheet ✓" : "Saved on this phone; will sync to the Sheet automatically.");
     }
   };
-  const resyncAll = async () => {
+  // Sends every session not yet confirmed by the Sheet. Safe to repeat: the
+  // backend replaces a session's rows by session_id, so a resend never duplicates.
+  const syncingRef = useRef(false);
+  const syncPending = async (loud = false) => {
     if (!cfg.url) {
-      flash("Add your Sheet URL in Settings first.");
+      if (loud) flash("Add your Sheet URL in Settings first.");
       return;
     }
-    const pending = sessions.filter(s => !s.synced);
+    if (syncingRef.current) return;
+    const all = LS.get(STORAGE_KEY) || [];
+    // An unsynced copy identical to a synced session is a re-entry, not new work: mark it done.
+    const syncedSigs = new Set(all.filter(s => s.synced).map(sessionSignature));
+    all.filter(s => !s.synced && syncedSigs.has(sessionSignature(s))).forEach(s => markSynced(s.id, true));
+    // Automatic retries only cover the last week; older leftovers wait for a manual "Sync now".
+    const weekAgo = Date.now() - 7 * 86400000;
+    const pending = (LS.get(STORAGE_KEY) || []).filter(s => !s.synced && (loud || (s.savedAt || 0) >= weekAgo));
     if (!pending.length) {
-      flash("Everything's already synced.");
+      if (loud) flash("Everything's already synced.");
       return;
     }
-    flash(`Syncing ${pending.length}…`);
-    for (const s of pending) {
-      const ok = await postToSheet(s, cfg);
-      if (ok) markSynced(s.id, true);
+    syncingRef.current = true;
+    if (loud) flash(`Syncing ${pending.length}…`);
+    let done = 0;
+    try {
+      for (const s of pending) {
+        if (await postToSheet(s, cfg)) {
+          markSynced(s.id, true);
+          done++;
+        }
+      }
+    } finally {
+      syncingRef.current = false;
     }
-    flash("Re-sync done.");
+    if (done) flash(done === pending.length ? `Synced ${done} session${done > 1 ? "s" : ""} to Sheet ✓` : `Synced ${done} of ${pending.length}; will keep retrying.`);else if (loud) flash("Couldn't reach the Sheet; will keep retrying.");
   };
+  const resyncAll = () => syncPending(true);
+  const syncPendingRef = useRef(syncPending);
+  syncPendingRef.current = syncPending;
+  // Retry unsynced sessions on open, when the app comes back to the foreground
+  // or reconnects, and every 90s while it's open.
+  useEffect(() => {
+    const run = () => {
+      if (document.visibilityState === "visible") syncPendingRef.current();
+    };
+    run();
+    const id = setInterval(run, 90000);
+    document.addEventListener("visibilitychange", run);
+    window.addEventListener("online", run);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", run);
+      window.removeEventListener("online", run);
+    };
+  }, [cfg.url]);
   const loadDashboard = async () => {
     if (!cfg.url) {
       setDashError("Add your Sheet URL in Settings first.");
@@ -3681,12 +4013,119 @@ function App() {
       setDashLoading(false);
     }
   };
+  // ----- Today dashboard: plan from the Sheet's Plan tab + what's been logged -----
+  const [planRows, setPlanRowsState] = useState(() => LS.get("toast:plan"));
+  const [runRows, setRunRows] = useState([]);
+  const [todayLoading, setTodayLoading] = useState(false);
+  const [planUnavailable, setPlanUnavailable] = useState(false);
+  const loadToday = async () => {
+    if (!cfg.url) return;
+    setTodayLoading(true);
+    const [plan, runs, all, ws, recap] = await Promise.all([fetchTab(cfg, "plan", "day_type").catch(() => null), fetchTab(cfg, "runs", "run_id").catch(() => null), fetchAllMeals(cfg).catch(() => null), fetchWeights(cfg).catch(() => null), fetchRecap(cfg).catch(() => null)]);
+    if (plan) {
+      setPlanRowsState(plan);
+      LS.set("toast:plan", plan);
+    }
+    setPlanUnavailable(!plan);
+    if (runs) setRunRows(runs);
+    if (all) setMealHistory(all);
+    if (ws) setWeights(ws);
+    setDashRecap(recap);
+    setTodayLoading(false);
+  };
+  useEffect(() => {
+    loadToday();
+  }, [cfg.url]);
+  // Match a plan's movement name to how it's already logged ("calf raise" -> "Standing Calf Raise").
+  const canonicalMovement = raw => {
+    const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const n = norm(raw);
+    const exact = movementOptions.find(o => norm(o.name) === n);
+    if (exact) return exact.name;
+    const tail = movementOptions.find(o => o.count > 0 && norm(o.name).endsWith(" " + n));
+    if (tail) return tail.name;
+    return raw.replace(/\b([a-z])/g, c => c.toUpperCase());
+  };
+  const loadPlannedWorkout = async row => {
+    const parsed = parsePrescription(row.prescription);
+    if (draftHasLifts && !window.confirm("Replace the workout you've started with today's plan?")) return;
+    const exercises = parsed.exercises.map(p => ({
+      id: uid(),
+      name: canonicalMovement(p.name),
+      target: `${p.sets}×${p.reps}${p.perSide ? " each" : ""}${p.weight ? ` @ ${p.weight}${p.weightHigh ? "-" + p.weightHigh : ""}` : ""}`,
+      perSide: p.perSide,
+      feel: null,
+      note: "",
+      recWhy: [changeVsLast(p, canonicalMovement(p.name)).text, row.note && noteMatches(row.note, canonicalMovement(p.name)) ? row.note : "", p.cue].filter(Boolean).join(" · "),
+      sets: Array.from({
+        length: p.sets
+      }, () => ({
+        weight: p.weight,
+        reps: /^\d+$/.test(p.reps) ? p.reps : "",
+        note: ""
+      }))
+    }));
+    setTemplateKey("__built__");
+    setDraft(d => ({
+      ...buildDraftFromTemplate({
+        label: row.session,
+        exercises: []
+      }),
+      exercises,
+      wod: d.wod || null
+    }));
+    setOpenNotes(new Set());
+    go("workouts");
+    // The plan sets most weights; ask Recommend only for movements it left open.
+    const open = exercises.filter(e => !e.sets[0].weight);
+    if (!open.length || !cfg.url) {
+      flash(`${row.session} loaded with today's targets.`);
+      return;
+    }
+    flash(`${row.session} loaded; getting weights for ${open.length} more…`);
+    try {
+      const recs = await fetchRecommendations(open, row.session);
+      setDraft(d => ({
+        ...d,
+        exercises: d.exercises.map(e => {
+          const r = open.some(o => o.id === e.id) && recs.find(x => x.name === e.name);
+          if (!r || !r.sets || !r.sets.length) return e;
+          return {
+            ...e,
+            sets: e.sets.map((s, i) => {
+              const rs = r.sets[Math.min(i, r.sets.length - 1)];
+              return {
+                ...s,
+                weight: s.weight || String(rs.weight || ""),
+                reps: s.reps || String(rs.reps || "")
+              };
+            }),
+            recWhy: [e.recWhy, r.why].filter(Boolean).join(" · ")
+          };
+        })
+      }));
+      flash(`${row.session} loaded with today's targets.`);
+    } catch (err) {
+      flash(`${row.session} loaded; Recommend couldn't fill the rest.`);
+    }
+  };
   const go = dest => {
     setView(dest);
     setMenuOpen(false);
     window.scrollTo(0, 0);
+    if (dest === "today") loadToday();
     if (dest === "dashboard") loadDashboard();
     if (dest === "nutrition" && !nutLoaded) loadNutrition();
+  };
+  const fetchRecommendations = async (exercises, workoutName) => {
+    const ex = exercises.map(e => e.name + "~" + e.sets.length).join("|");
+    const url = cfg.url + (cfg.url.includes("?") ? "&" : "?") + "action=recommend&token=" + encodeURIComponent(cfg.token || "") + "&workout=" + encodeURIComponent(workoutName) + "&ex=" + encodeURIComponent(ex);
+    const res = await fetch(url, {
+      method: "GET"
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Recommend failed.");
+    return data.recommendations || [];
   };
   const getRecommendations = async () => {
     if (!cfg.url) {
@@ -3695,14 +4134,7 @@ function App() {
     }
     setRecLoading(true);
     try {
-      const ex = draft.exercises.map(e => e.name + "~" + e.sets.length).join("|");
-      const url = cfg.url + (cfg.url.includes("?") ? "&" : "?") + "action=recommend&token=" + encodeURIComponent(cfg.token || "") + "&workout=" + encodeURIComponent(draft.type) + "&ex=" + encodeURIComponent(ex);
-      const res = await fetch(url, {
-        method: "GET"
-      });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Recommend failed.");
-      const recs = data.recommendations || [];
+      const recs = await fetchRecommendations(draft.exercises, draft.type);
       setDraft(d => ({
         ...d,
         exercises: d.exercises.map(e => {
@@ -3770,6 +4202,399 @@ function App() {
   const doneSets = draft.exercises.reduce((a, e) => a + e.sets.filter(s => s.weight || s.reps).length, 0);
   const totalSets = draft.exercises.reduce((a, e) => a + e.sets.length, 0);
   const pendingCount = sessions.filter(s => !s.synced).length;
+
+  // ----- Today dashboard view -----
+  const todayIso = today();
+  const planList = Array.isArray(planRows) ? planRows : [];
+  const planFor = iso => planList.find(r => isoDate(r.date) === iso) || null;
+  const liftDates = new Set([...sessions, ...sheetSessions].filter(s => s.wod || (s.exercises || []).some(e => (e.sets || []).some(x => x.weight || x.reps)) || s.finisher).map(s => s.date));
+  const runDates = new Set(runRows.filter(r => r.section === "summary").map(r => isoDate(r.date)));
+  const isRestRow = r => !r || /\brest\b/i.test(r.session || "");
+  const dayStatus = iso => {
+    const r = planFor(iso);
+    const logged = liftDates.has(iso) || runDates.has(iso);
+    const st = String(r && r.status || "").toLowerCase();
+    if (st && st !== "planned") return st;
+    if (iso === todayIso) return logged ? "done" : "today";
+    if (iso > todayIso) return "planned";
+    if (logged) return "done";
+    return isRestRow(r) ? "rest" : "not logged";
+  };
+  const STATUS_STYLE = {
+    done: ["✓", "text-[#7ED9A8]"],
+    swapped: ["⇄", "text-[#e0b877]"],
+    moved: ["→", "text-[#e0b877]"],
+    missed: ["✕", "text-[#FF6FA5]"],
+    "not logged": ["?", "text-white/40"],
+    today: ["●", "text-[#A66CFF]"],
+    planned: ["○", "text-white/30"],
+    rest: ["–", "text-white/30"]
+  };
+  const dayLabel = (iso, opts) => new Date(iso + "T00:00:00").toLocaleDateString(undefined, opts);
+  const todayRow = planFor(todayIso);
+  const todayParsed = parsePrescription(todayRow && todayRow.prescription);
+  const todayIsLift = isLiftingSession(todayRow, todayParsed);
+  const tomorrowIso = addDaysIso(todayIso, 1);
+  const tomorrowRow = planFor(tomorrowIso);
+  const weekStart = addDaysIso(todayIso, -((new Date(todayIso + "T00:00:00").getDay() + 6) % 7));
+  const weekDays = Array.from({
+    length: 7
+  }, (_, i) => addDaysIso(weekStart, i));
+  const recapFocus = dashRecap && dashRecap.kind === "json" && dashRecap.recap && isoDate(dashRecap.date) === addDaysIso(todayIso, -1) ? dashRecap.recap.focus || [] : [];
+  // Week numbers
+  const trainingDays = weekDays.filter(iso => !isRestRow(planFor(iso)) && planFor(iso));
+  const doneDays = trainingDays.filter(iso => dayStatus(iso) === "done");
+  const runMiles = runRows.filter(r => r.section === "summary" && /run/i.test(r.run_type || "") && weekDays.includes(isoDate(r.date))).reduce((sum, r) => {
+    const m = String(r.distance || "").match(/([\d.]+)\s*(mi|m)\b/);
+    return sum + (m ? m[2] === "mi" ? +m[1] : +m[1] / 1609.344 : 0);
+  }, 0);
+  const pastWeekDays = weekDays.filter(iso => iso < todayIso);
+  const calDays = pastWeekDays.map(iso => ({
+    iso,
+    cal: mealHistory.filter(m => m.date === iso).reduce((s, m) => s + (m.cal || 0), 0)
+  })).filter(d => d.cal > 0);
+  const calAvg = calDays.length ? Math.round(calDays.reduce((s, d) => s + d.cal, 0) / calDays.length) : null;
+  const calTarget = calDays.length ? Math.round(calDays.reduce((s, d) => s + (String((planFor(d.iso) || {}).day_type).toUpperCase() === "HARD" ? 2650 : 2250), 0) / calDays.length) : null;
+  const avgWeight = (from, to) => {
+    const pts = weights.filter(w => w.date >= from && w.date <= to);
+    return pts.length ? pts.reduce((s, w) => s + w.lb, 0) / pts.length : null;
+  };
+  const wThis = avgWeight(addDaysIso(todayIso, -6), todayIso);
+  const wPrev = avgWeight(addDaysIso(todayIso, -13), addDaysIso(todayIso, -7));
+  const card = "bg-[#1f1f1f] border border-white/10 rounded-2xl p-4 mb-4";
+  const eyebrow = "text-[11px] uppercase tracking-[0.14em] font-semibold text-white/40";
+  const dayTypeChip = r => r && r.day_type && /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] font-bold tracking-[0.1em] rounded-full px-2 py-0.5 " + (String(r.day_type).toUpperCase() === "HARD" ? "bg-[#A66CFF]/20 text-[#A66CFF]" : "bg-[#7ED9A8]/15 text-[#7ED9A8]")
+  }, String(r.day_type).toUpperCase());
+  // Each movement's logged history (this phone + the Sheet): top set per session, newest first.
+  const normMove = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const movementLog = (() => {
+    const seenSession = new Set();
+    const byName = new Map();
+    [...sessions, ...sheetSessions].forEach(s => {
+      if (seenSession.has(s.id)) return;
+      seenSession.add(s.id);
+      (s.exercises || []).forEach(e => {
+        // Bodyweight/band sets count with weight 0, so "BW×12" is still history.
+        const sets = (e.sets || []).map(x => ({
+          w: parseFloat(x.weight) || 0,
+          r: parseInt(x.reps, 10)
+        })).filter(x => x.r > 0);
+        if (!sets.length) return;
+        const top = sets.reduce((a, b) => b.w > a.w || b.w === a.w && b.r > a.r ? b : a);
+        const k = normMove(e.name);
+        const list = byName.get(k) || [];
+        if (!list.some(h => h.date === s.date)) list.push({
+          date: s.date,
+          name: e.name,
+          w: top.w,
+          r: top.r
+        });
+        byName.set(k, list);
+      });
+    });
+    // A short name that only one longer logged name ends with is the same movement
+    // ("calf raise" -> "standing calf raise"), so its history isn't split in two.
+    [...byName.keys()].forEach(a => {
+      const longer = [...byName.keys()].filter(b => b !== a && b.endsWith(" " + a));
+      if (longer.length !== 1) return;
+      const into = byName.get(longer[0]);
+      byName.get(a).forEach(h => {
+        const same = into.find(x => x.date === h.date);
+        if (!same) into.push(h);else if (h.w > same.w || h.w === same.w && h.r > same.r) Object.assign(same, {
+          w: h.w,
+          r: h.r
+        });
+      });
+      byName.set(a, into);
+    });
+    byName.forEach(l => l.sort((a, b) => a.date < b.date ? 1 : -1));
+    return byName;
+  })();
+  const mostUsedName = hist => {
+    const c = {};
+    hist.forEach(h => {
+      c[h.name] = (c[h.name] || 0) + 1;
+    });
+    return Object.keys(c).sort((a, b) => c[b] - c[a] || (/[A-Z]/.test(b[1] || "") ? 1 : 0) - (/[A-Z]/.test(a[1] || "") ? 1 : 0))[0];
+  };
+  const fmtW = n => String(Math.round(n * 10) / 10);
+  const shortDate = iso => dayLabel(iso, {
+    month: "short",
+    day: "numeric"
+  });
+  // How today's target compares with the last time this movement was logged.
+  const changeVsLast = (p, name, before = todayIso) => {
+    const last = (movementLog.get(normMove(name)) || []).find(h => h.date < before);
+    const w = parseFloat(p.weight);
+    const repsGoal = parseInt(String(p.reps).split("-").pop(), 10);
+    if (!last) return {
+      dir: "new",
+      text: "New on your plan, no logged history yet."
+    };
+    const lastTxt = `${last.w > 0 ? fmtW(last.w) : "BW"}×${last.r} on ${shortDate(last.date)}`;
+    if (!(w > 0) && last.w === 0) return repsGoal > last.r ? {
+      dir: "up",
+      text: `Up to ${repsGoal} reps from last time (${lastTxt}).`
+    } : {
+      dir: "same",
+      text: `Same as last time (${lastTxt}).`
+    };
+    if (!(w > 0)) return {
+      dir: "same",
+      text: `Last time: ${lastTxt}.`
+    };
+    if (w > last.w) return {
+      dir: "up",
+      text: `Up ${fmtW(w - last.w)} lb from last time (${lastTxt}).`
+    };
+    if (w < last.w) return {
+      dir: "down",
+      text: `Down ${fmtW(last.w - w)} lb from last time (${lastTxt}).`
+    };
+    return {
+      dir: repsGoal > last.r ? "up" : "same",
+      text: `Same weight as last time (${lastTxt})${repsGoal > last.r ? ", going for more reps." : "."}`
+    };
+  };
+  // A plan note that talks about one movement ("Trap bar up after 275x6") belongs with it.
+  const noteMatches = (note, name) => {
+    const words = normMove(name).split(" ");
+    const key = words.slice(0, Math.min(2, words.length)).join(" ");
+    return key.length > 3 && normMove(note).includes(key);
+  };
+  const DIR_STYLE = {
+    up: ["↑", "text-[#7ED9A8]"],
+    down: ["↓", "text-[#e0b877]"],
+    same: ["=", "text-white/50"],
+    new: ["★", "text-[#A66CFF]"]
+  };
+  const prescriptionList = (row, parsed, before = todayIso) => {
+    if (parsed.exercises.length < 2) return row.prescription && /*#__PURE__*/React.createElement("div", {
+      className: "mt-3 text-[14px] text-white/80 leading-relaxed"
+    }, row.prescription);
+    const rows = parsed.exercises.map((p, i) => {
+      const name = canonicalMovement(p.name);
+      const ch = changeVsLast(p, name, before);
+      const [icon, color] = DIR_STYLE[ch.dir];
+      const note = row.note && noteMatches(row.note, name) ? row.note : "";
+      return /*#__PURE__*/React.createElement("div", {
+        key: i,
+        className: "py-2.5 border-b border-white/5 last:border-b-0"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex justify-between gap-3 text-[15px]"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-white font-semibold"
+      }, name), /*#__PURE__*/React.createElement("span", {
+        className: "text-white/80 tabular-nums shrink-0"
+      }, `${p.sets}×${p.reps}${p.perSide ? " each" : ""}${p.weight ? ` @ ${p.weight}${p.weightHigh ? "-" + p.weightHigh : ""}` : ""}`)), /*#__PURE__*/React.createElement("div", {
+        className: "text-[12px] mt-0.5 " + color
+      }, icon, " ", ch.text), (p.cue || note) && /*#__PURE__*/React.createElement("div", {
+        className: "text-[12px] text-white/45 mt-0.5"
+      }, [note, p.cue].filter(Boolean).join(" · ")));
+    });
+    return /*#__PURE__*/React.createElement("div", {
+      className: "mt-2"
+    }, ...rows, parsed.extras.length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "text-[12px] text-white/40 pt-2"
+    }, "Also: ", parsed.extras.join(" · ")));
+  };
+  // Progress: best recent set vs where each regular lift stood ~3-10 weeks ago (estimated-1RM).
+  const e1rm = h => h.w * (1 + h.r / 30);
+  const progressRows = (() => {
+    const out = [];
+    const cutRecent = addDaysIso(todayIso, -21),
+      cutOld = addDaysIso(todayIso, -70);
+    new Set(movementLog.values()).forEach(hist => {
+      const inWindow = hist.filter(h => h.w > 0 && h.date >= cutOld && h.date <= todayIso);
+      const recent = inWindow.filter(h => h.date >= cutRecent);
+      const earlier = inWindow.filter(h => h.date < cutRecent);
+      if (!recent.length || !earlier.length) return;
+      const now = recent.reduce((a, b) => e1rm(b) > e1rm(a) ? b : a);
+      const then = earlier[earlier.length - 1];
+      out.push({
+        name: mostUsedName(hist),
+        now,
+        then,
+        pct: (e1rm(now) / e1rm(then) - 1) * 100,
+        n: inWindow.length
+      });
+    });
+    return out.sort((a, b) => b.n - a.n).slice(0, 6);
+  })();
+  // A 2-3 line intro: what kind of day it is and what's changing, then any general
+  // plan note and the morning email's top tip. Movement-specific notes stay on their row.
+  const generalNote = todayRow && todayRow.note && !(todayIsLift && todayParsed.exercises.some(p => noteMatches(todayRow.note, canonicalMovement(p.name)))) ? todayRow.note : "";
+  // Briefing: 2-3 plain lines on what today is for, how it compares, and what's next.
+  const listJoin = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length - 1] : a[0];
+  const upsFor = (row, parsed, before) => parsed.exercises.map(p => {
+    const name = canonicalMovement(p.name);
+    return {
+      name,
+      ch: changeVsLast(p, name, before)
+    };
+  }).filter(c => c.ch.dir === "up").map(c => {
+    const m = c.ch.text.match(/^Up (\d+(?:\.\d+)?) lb/);
+    return c.name + (m ? ` (+${m[1]} lb)` : " (more reps)");
+  });
+  const runSummaries = runRows.filter(r => r.section === "summary" && /run/i.test(r.run_type || "")).map(r => ({
+    date: isoDate(r.date),
+    dist: String(r.distance || ""),
+    hr: parseInt(r.avg_hr, 10) || null
+  })).sort((a, b) => a.date < b.date ? 1 : -1);
+  const runTxt = r => `${r.dist}${r.hr ? ` at avg HR ${r.hr}` : ""}`;
+  const isHardRow = r => !!r && String(r.day_type || "").toUpperCase() === "HARD";
+  const introLines = (() => {
+    if (!todayRow) return [];
+    const kind = isHardRow(todayRow) ? "Hard day" : String(todayRow.day_type || "").toUpperCase() === "EASY" ? "Easy day" : "";
+    const session = String(todayRow.session || "");
+    const tomorrowParsed = parsePrescription(tomorrowRow && tomorrowRow.prescription);
+    const tomorrowUps = isLiftingSession(tomorrowRow, tomorrowParsed) ? upsFor(tomorrowRow, tomorrowParsed, tomorrowIso) : [];
+    const tDetail = !tomorrowRow ? "" : tomorrowUps.length ? `, with ${tomorrowUps[0].replace(/ \(\+(\S+) lb\)$/, " going up $1 lb")}` : isRestRow(tomorrowRow) ? tomorrowRow.note ? ` (${tomorrowRow.note})` : "" : /\brun\b/i.test(tomorrowRow.session || "") && tomorrowRow.prescription ? ` (${String(tomorrowRow.prescription).split(",")[0]})` : "";
+    const lookAhead = tomorrowRow ? `Tomorrow: ${tomorrowRow.session}${tDetail}${isHardRow(tomorrowRow) && !isHardRow(todayRow) ? ", so keep today easy and recover." : "."}` : "";
+    const weekLine = trainingDays.length ? `${doneDays.length} of ${trainingDays.length} sessions done this week.` : "";
+    if (todayIsLift) {
+      const ups = upsFor(todayRow, todayParsed, todayIso);
+      const news = todayParsed.exercises.map(p => canonicalMovement(p.name)).filter(n => changeVsLast({
+        weight: "",
+        reps: ""
+      }, n).dir === "new");
+      let first = ups.length ? `moving up on ${listJoin(ups)}; holding the rest.` : "holding your weights; focus on clean, solid reps.";
+      if (news.length) first += ` First time on ${listJoin(news)}.`;
+      return [kind ? `${kind}: ${first}` : first, generalNote || recapFocus[0], lookAhead].filter(Boolean).slice(0, 3);
+    }
+    if (/\brun\b/i.test(session)) {
+      const todayRun = runSummaries.find(r => r.date === todayIso);
+      const lastRun = runSummaries.find(r => r.date < todayIso);
+      const goal = todayRow.prescription ? `${todayRow.prescription}.` : "keep it conversational.";
+      const first = todayRun ? `Run done: ${runTxt(todayRun)}${todayRun.hr && /under 150/i.test(todayRow.prescription || "") ? todayRun.hr < 150 ? ", right in the easy zone." : ", a bit above the easy zone." : "."}` : `${kind ? kind + ": " : ""}${goal}`;
+      const second = todayRun ? lastRun ? `Last run before this: ${runTxt(lastRun)} on ${shortDate(lastRun.date)}.` : "" : lastRun ? `Your last run was ${runTxt(lastRun)} on ${shortDate(lastRun.date)}; aim to match that effort or lower.` : "";
+      return [first, generalNote || second, lookAhead].filter(Boolean).slice(0, 3);
+    }
+    const sentence = t => /[.!?]$/.test(t) ? t : t + ".";
+    if (isRestRow(todayRow)) return [sentence(`Rest day${generalNote ? `: ${generalNote}` : ""}`), lookAhead, weekLine].filter(Boolean).slice(0, 3);
+    // CrossFit / other: the first sentence of the prescription, plus any baseline to beat.
+    const rx = String(todayRow.prescription || "");
+    const firstRx = rx.split(/(?<=\.)\s+/)[0];
+    const baseline = (rx.match(/baseline\s+([^.]+?)(?:\s*\(([^)]+)\))?(?:\.|$)/i) || []).slice(1);
+    const baseLine = baseline[0] ? `Your baseline is ${baseline[0].trim()}${baseline[1] ? ` from ${baseline[1]}` : ""}; try to beat it.` : "";
+    return [sentence(`${kind ? kind + ": " : ""}${firstRx && firstRx !== rx.slice(0, 0) ? firstRx.replace(/\.$/, "") : session}`), baseLine || (generalNote ? sentence(generalNote) : "") || recapFocus[0], lookAhead || weekLine].filter(Boolean).slice(0, 3);
+  })();
+  // Sits above the workout card: a short briefing before the workout itself.
+  const intro = introLines.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mb-4 px-1 space-y-1.5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: eyebrow
+  }, "Today's briefing"), introLines.map((l, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "leading-snug " + (i === 0 ? "text-[16px] text-white" : "text-[14px] text-white/60")
+  }, l)));
+  const todayCard = /*#__PURE__*/React.createElement("div", {
+    className: "bg-[#1f1f1f] border border-[#A66CFF]/50 rounded-2xl p-4 mb-4"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: eyebrow
+  }, "Today · ", dayLabel(todayIso, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  })), dayTypeChip(todayRow)), todayRow ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "bebas text-[36px] leading-none text-white mt-2"
+  }, todayRow.session), dayStatus(todayIso) === "done" && /*#__PURE__*/React.createElement("div", {
+    className: "text-[12px] text-[#7ED9A8] font-semibold mt-1"
+  }, "✓ Logged today"), prescriptionList(todayRow, todayParsed), todayIsLift && /*#__PURE__*/React.createElement("button", {
+    onClick: () => loadPlannedWorkout(todayRow),
+    className: "bebas w-full mt-4 bg-[#A66CFF] text-[#141414] rounded-2xl py-3.5 text-[18px] tracking-[0.05em]"
+  }, "LOAD THIS WORKOUT")) : /*#__PURE__*/React.createElement("div", {
+    className: "text-[14px] text-white/60 mt-2"
+  }, "Nothing planned for today yet. Plan it in your planning chat and it'll show up here."));
+  // Tomorrow gets the same per-movement detail as today; a note about one movement sits on its row.
+  const tomorrowParsedCard = parsePrescription(tomorrowRow && tomorrowRow.prescription);
+  const tomorrowGeneralNote = tomorrowRow && tomorrowRow.note && !(isLiftingSession(tomorrowRow, tomorrowParsedCard) && tomorrowParsedCard.exercises.some(p => noteMatches(tomorrowRow.note, canonicalMovement(p.name)))) ? tomorrowRow.note : "";
+  const tomorrowCard = /*#__PURE__*/React.createElement("div", {
+    className: card
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: eyebrow
+  }, "Tomorrow · ", dayLabel(tomorrowIso, {
+    weekday: "short"
+  })), dayTypeChip(tomorrowRow)), /*#__PURE__*/React.createElement("div", {
+    className: "bebas text-[24px] leading-none text-white mt-2"
+  }, tomorrowRow ? tomorrowRow.session : "Not planned yet"), tomorrowGeneralNote && /*#__PURE__*/React.createElement("div", {
+    className: "text-[13px] text-white/60 mt-1.5 leading-relaxed"
+  }, tomorrowGeneralNote), tomorrowRow && !isRestRow(tomorrowRow) && prescriptionList(tomorrowRow, tomorrowParsedCard, tomorrowIso));
+  const weekRows = weekDays.map(iso => {
+    const r = planFor(iso);
+    const st = dayStatus(iso);
+    const [icon, color] = STATUS_STYLE[st] || STATUS_STYLE.planned;
+    return /*#__PURE__*/React.createElement("div", {
+      key: iso,
+      className: "flex items-center gap-3 py-2 border-b border-white/5 last:border-b-0 " + (iso === todayIso ? "bg-[#A66CFF]/[0.08] -mx-2 px-2 rounded-lg" : "")
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "w-9 text-[12px] font-semibold text-white/50 shrink-0"
+    }, dayLabel(iso, {
+      weekday: "short"
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "flex-1 min-w-0 truncate text-[14px] " + (iso < todayIso ? "text-white/60" : "text-white/90")
+    }, r ? r.session : "—"), /*#__PURE__*/React.createElement("span", {
+      className: "text-[11px] shrink-0 " + color
+    }, icon, " ", st === "today" ? "today" : st));
+  });
+  const statTile = (label, value, sub) => /*#__PURE__*/React.createElement("div", {
+    className: "bg-[#141414] rounded-xl px-3 py-2.5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.12em] text-white/40"
+  }, label), /*#__PURE__*/React.createElement("div", {
+    className: "bebas text-[24px] leading-none text-white mt-1 tabular-nums"
+  }, value), sub && /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-white/40 mt-0.5"
+  }, sub));
+  const weekStats = /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-2 mt-3"
+  }, statTile("Sessions", `${doneDays.length} of ${trainingDays.length}`, "done this week"), statTile("Run miles", runMiles ? runMiles.toFixed(1) : "0", "this week"), statTile("Calories", calAvg ? calAvg.toLocaleString() : "—", calAvg ? `avg · target ~${calTarget.toLocaleString()}` : "none logged yet"), statTile("Weight", wThis ? wThis.toFixed(1) : "—", wThis && wPrev ? `${wThis - wPrev <= 0 ? "" : "+"}${(wThis - wPrev).toFixed(1)} vs last week` : "7-day avg"));
+  const weekCard = /*#__PURE__*/React.createElement("div", {
+    className: card
+  }, /*#__PURE__*/React.createElement("span", {
+    className: eyebrow
+  }, "This week"), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2"
+  }, ...weekRows), weekStats);
+  const progressCard = progressRows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: card
+  }, /*#__PURE__*/React.createElement("span", {
+    className: eyebrow
+  }, "Progress · last 10 weeks"), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2"
+  }, ...progressRows.map(pr => {
+    const dir = pr.pct >= 1 ? "up" : pr.pct <= -1 ? "down" : "same";
+    const [icon, color] = DIR_STYLE[dir];
+    return /*#__PURE__*/React.createElement("div", {
+      key: pr.name,
+      className: "py-2 border-b border-white/5 last:border-b-0"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex justify-between gap-3"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-[14px] text-white font-semibold truncate"
+    }, pr.name), /*#__PURE__*/React.createElement("span", {
+      className: "text-[13px] font-semibold shrink-0 " + color
+    }, icon, " ", dir === "same" ? "holding" : `${pr.pct > 0 ? "+" : ""}${Math.round(pr.pct)}%`)), /*#__PURE__*/React.createElement("div", {
+      className: "text-[12px] text-white/45 mt-0.5 tabular-nums"
+    }, `${fmtW(pr.then.w)}×${pr.then.r} on ${shortDate(pr.then.date)} → ${fmtW(pr.now.w)}×${pr.now.r} on ${shortDate(pr.now.date)}`));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-white/30 mt-2"
+  }, "Compares your best recent set with where you started, counting both weight and reps."));
+  const todayNotice = !cfg.url ? "Connect your Sheet in Settings to see your plan here." : planUnavailable && !planList.length ? "Your Sheet's script needs a small update before your plan can show here." : "";
+  const todayView = /*#__PURE__*/React.createElement("div", null, todayNotice ? /*#__PURE__*/React.createElement("div", {
+    className: card + " text-[14px] text-white/60"
+  }, todayNotice) : /*#__PURE__*/React.createElement(React.Fragment, null, intro, todayCard, tomorrowCard, weekCard, progressCard, todayLoading && /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-white/30 text-center"
+  }, "Updating…")));
+  const syncNotice = cfg.url && pendingCount > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: resyncAll,
+    className: "w-full mt-2 text-[12px] text-[#A66CFF] font-semibold text-center"
+  }, `${pendingCount} session${pendingCount > 1 ? "s" : ""} waiting to sync to the Sheet · Sync now`);
   return /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen bg-[#141414] text-white",
     style: {
@@ -3848,7 +4673,11 @@ function App() {
       paddingBottom: "max(2.5rem, env(safe-area-inset-bottom))"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-5 pb-3 border-b border-white/10"
+    className: "sticky top-0 z-30 -mx-4 px-4 mb-5 pb-3 bg-[#09090b]/95 backdrop-blur border-b border-white/10 flex items-center justify-between",
+    style: {
+      marginTop: "calc(-1 * max(1.25rem, env(safe-area-inset-top)))",
+      paddingTop: "max(1.25rem, env(safe-area-inset-top))"
+    }
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setMenuOpen(true),
     "aria-label": "Menu",
@@ -3865,7 +4694,7 @@ function App() {
     className: "bebas text-[#A66CFF] text-[11px] tracking-[0.14em]"
   }, "TOAST PERFORMANCE SYSTEM"), /*#__PURE__*/React.createElement("div", {
     className: "bebas text-xl tracking-[0.04em] uppercase text-white leading-none mt-0.5 truncate"
-  }, view === "settings" ? "Settings" : view === "nutrition" ? "Nutrition" : "Workouts"))), menuOpen && /*#__PURE__*/React.createElement("div", {
+  }, view === "settings" ? "Settings" : view === "nutrition" ? "Nutrition" : view === "today" ? "Today" : "Workouts"))), menuOpen && /*#__PURE__*/React.createElement("div", {
     className: "fixed inset-0 z-50",
     onClick: () => setMenuOpen(false)
   }, /*#__PURE__*/React.createElement("div", {
@@ -3884,6 +4713,9 @@ function App() {
       top: "max(1rem, env(safe-area-inset-top))"
     }
   }, "✕"), [{
+    key: "today",
+    label: "TODAY"
+  }, {
     key: "workouts",
     label: "WORKOUTS"
   }, {
@@ -3896,7 +4728,7 @@ function App() {
     key: item.key,
     onClick: () => go(item.key),
     className: `bebas block w-full text-left px-6 py-2.5 text-[22px] tracking-[0.04em] border-l-[3px] ${view === item.key ? "text-[#A66CFF] border-[#A66CFF] bg-[#A66CFF]/[0.12]" : "text-white/50 border-transparent"}`
-  }, item.label)))), view === "settings" && /*#__PURE__*/React.createElement("div", {
+  }, item.label)))), view === "today" && todayView, view === "settings" &&/*#__PURE__*/React.createElement("div", {
     className: "bg-[#1f1f1f] border border-white/10 rounded-xl p-3 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-2"
@@ -4085,10 +4917,7 @@ function App() {
   }, "▾")), /*#__PURE__*/React.createElement("button", {
     onClick: openBuilder,
     className: "bebas shrink-0 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-xl px-4 text-sm tracking-[0.03em] whitespace-nowrap"
-  }, "BUILD A WORKOUT")), customPresets[templateKey] && /*#__PURE__*/React.createElement("button", {
-    onClick: () => deletePreset(templateKey),
-    className: "text-[11px] text-white/40 mt-1"
-  }, "Remove this preset")), draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "BUILD A WORKOUT")), workoutActions), draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: getRecommendations,
     disabled: recLoading,
     className: "bebas w-full mb-5 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-2xl py-3.5 text-base tracking-[0.06em] disabled:opacity-50"
@@ -4261,7 +5090,7 @@ function App() {
   })), /*#__PURE__*/React.createElement("button", {
     onClick: requestSave,
     className: "bebas w-full mt-6 bg-[#A66CFF] text-[#141414] rounded-2xl py-3.5 text-xl tracking-[0.05em]"
-  }, "SAVE SESSION"), (!allTemplates[templateKey] || templateKey === "freestyle") && draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "SAVE SESSION"), syncNotice, (!allTemplates[templateKey] || templateKey === "freestyle") && draft.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: saveAsPreset,
     className: "bebas w-full mt-2 bg-[#A66CFF]/[0.12] border-[1.5px] border-[#A66CFF] text-[#A66CFF] rounded-2xl py-3 text-lg tracking-[0.05em]"
   }, "SAVE WORKOUT"))), /*#__PURE__*/React.createElement("div", {

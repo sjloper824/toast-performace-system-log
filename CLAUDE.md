@@ -14,10 +14,19 @@
 - Before committing: extract the <script>...</script> body and run `node --check` on it to catch syntax errors. Nested React.createElement calls are easy to miscount parens on -- prefer breaking large render blocks into small named intermediate variables rather than one giant nested expression.
 
 ## Backend
-- Google Apps Script web app at cfg.url with cfg.token.
-- GET via `tab` query param: no tab/date = strength log, tab=recap, tab=nutrition&date=X (single day), tab=nutrition alone (full history, used for suggestions), tab=weight.
-- POST with JSON body: {token, session} | {token, meal} | {token, weight} | {token, deleteMeal}.
-- Known gap: no access to the Apps Script source from the cloud assistant side. Can't directly confirm it persists/returns a meal_type column, or that tab=nutrition (no date) genuinely returns full history.
+- Google Apps Script web app at cfg.url with cfg.token. Source of truth: `apps-script/Code.gs` in this repo (bound to the "Toast Performance System Log" Sheet). The user pastes it into Extensions ▸ Apps Script and redeploys (Manage deployments ▸ edit ▸ New version) — laptop only. Not served by the app; editing it costs no Netlify credits.
+- Secrets live in Script Properties (TOKEN, ANTHROPIC_API_KEY), never in the code — this repo is public. Missing TOKEN = every request refused.
+- GET via `tab` query param: no tab/date = strength log, tab=recap, tab=nutrition&date=X (single day), tab=nutrition alone (full history), tab=weight, tab=workouts. GET action=recommend|estimate|build calls Claude.
+- POST with JSON body: {token, session} | {token, meal} | {token, weight} | {token, deleteMeal} | {token, saveWorkout|renameWorkout|deleteWorkout}.
+- Nutrition tab has a meal_type column (added Nov 2026; earlier rows are blank → show as Lunch).
+- Recommend matches history by normalized movement name (case/plural/"dumbbell"→db etc.) and, when an exercise has <2 dated sessions, adds up to 2 similar movements as a guide.
+- Plan tab (tab=plan): one row per date (date, weekday, session, day_type, prescription, status, note, updated_by, updated_at), written by planning chats + the morning email. The Today view parses `prescription` text ("trap bar deadlift 3x6 @ 285; ... + ...") with parsePrescription.
+- Workouts tab = the app's workout picker: one row per movement (workout_id, workout, exercise, target, sets, per_side). Rows without an id are keyed "sheet:<title>" by both app and script. If the backend doesn't serve it, the app falls back to built-in TEMPLATES + local presets.
+
+## Strength sync (app -> Sheet)
+- POST text/plain to the web app; Apps Script answers 302 -> googleusercontent JSON, which fetch follows and can read (`postToSheet` checks `data.ok`). Not an opaque/no-cors call.
+- doSave starts the upload before resetting the draft (a draft-reset crash for non-built-in workouts used to skip the upload entirely — fixed Nov 2026).
+- Unsynced sessions auto-retry on open, on foreground/online, and every 90s (`syncPending`); auto only covers the last 7 days, manual "Sync now" sends all. Resends are safe because the backend upserts by session_id. An unsynced session identical (`sessionSignature`) to a synced one is marked done, not uploaded; saving an identical workout twice asks first.
 
 ## Nutrition logging (current design -- do not revert to the old timeline)
 - 4 meal-type buckets: Breakfast / Lunch / Dinner / Snack (MEAL_TYPES, DEFAULT_MEAL_TYPE = "Lunch"). New/typed/estimated entries default to Lunch.
@@ -38,7 +47,8 @@ mealCombos groups history by date+mealType, finds 2+-food combos repeated on 2+ 
 Weight/reps inputs should default to a numeric keypad (inputMode=decimal/numeric) with a way to switch to a full keyboard for things like "BW" or "AMRAP". Current implementation is a floating toolbar pinned above the iOS keyboard using window.visualViewport offset math, with a 123/ABC toggle that blurs/refocuses the input to force inputMode to re-apply. Not yet confirmed working on a real device/live deploy -- verify this first.
 
 ## Workflow notes
-- Preview before live: never push app changes straight to main. Push to a branch, open a PR, wait for the Netlify deploy preview (deploy-preview-<N>--toastperformancesystem.netlify.app), share that URL with the user, and merge to main only after they confirm it looks right.
+- Preview before live (Steve's rule, every update, no exceptions): never push app changes straight to main. Steve tries each update himself on the deploy preview before launch; nothing merges until he has used it and said go.
+- Preview mechanics: never push app changes straight to main. Push to a branch, open a PR, wait for the Netlify deploy preview (deploy-preview-<N>--toastperformancesystem.netlify.app), share that URL with the user, and merge to main only after they confirm it looks right.
 - Netlify credits (free plan = 300/month, hard limit; running out pauses the live site until the next cycle): every production deploy (any push/merge to main) costs 15 credits; deploy previews cost 0.
   - Batch: stack multiple changes on the branch/PR and review them on the same preview; merge to main once, not per change. Ask the user before merging if more changes are likely coming in the same session.
   - Docs/notes-only commits to main (e.g. this file) must include `[skip netlify]` in the commit message so they don't trigger a deploy.
@@ -51,6 +61,8 @@ Weight/reps inputs should default to a numeric keypad (inputMode=decimal/numeric
 ## RELEASE QUEUE -- waiting for Netlify credits (next reset Dec 1, 2026)
 Live-site deploys are paused until credits reset (14 left in Nov; one deploy = 15). Everything below is stacked on branch `claude/nice-planck-4qwzq5` in PR #3 (https://github.com/sjloper824/toast-performace-system-log/pull/3) and goes live with ONE merge.
 - [ ] Strength sync fix: upload starts before the form resets (save-crash on self-made workouts), auto-retry of unsynced sessions, re-entry dedupe, "waiting to sync · Sync now" notice.
+- [ ] Today dashboard (new home screen): "Today's briefing" (2-3 lines above the card: hard/easy day + what's going up, general plan note, morning email's top tip), today's planned session from the Plan tab with each movement's change vs last time on its own row, LOAD THIS WORKOUT fills Workouts with the plan's weights (Recommend fills any the plan leaves open), tomorrow, this week (status per day + sessions / run miles / calories / weight), and Progress (best recent set vs ~10 weeks ago, estimated-1RM).
+- [ ] Menu bar stays pinned at the top while scrolling. Needs backend tab=plan (in apps-script/Code.gs, NOT yet deployed by Steve: one laptop paste + New version).
 - [ ] Workout picker from the Sheet's Workouts tab + Rename / Remove / Save Workout in the app; phone-only presets (e.g. "[OS] Day B - Trap bar") copied into the Sheet on first load.
 - Merge-day checks: credits show reset in Netlify Usage -> merge PR #3 -> on the phone: picker lists the Sheet workouts, Day B appears in the Workouts tab, and a saved session shows up in the Strength tab within seconds.
 - Add new app changes to this same branch/PR and to this list; don't merge to main before Dec 1.
