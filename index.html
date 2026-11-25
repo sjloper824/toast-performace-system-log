@@ -4056,7 +4056,7 @@ function App() {
       perSide: p.perSide,
       feel: null,
       note: "",
-      recWhy: p.cue,
+      recWhy: [changeVsLast(p, canonicalMovement(p.name)).text, row.note && noteMatches(row.note, canonicalMovement(p.name)) ? row.note : "", p.cue].filter(Boolean).join(" · "),
       sets: Array.from({
         length: p.sets
       }, () => ({
@@ -4266,20 +4266,199 @@ function App() {
   const dayTypeChip = r => r && r.day_type && /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] font-bold tracking-[0.1em] rounded-full px-2 py-0.5 " + (String(r.day_type).toUpperCase() === "HARD" ? "bg-[#A66CFF]/20 text-[#A66CFF]" : "bg-[#7ED9A8]/15 text-[#7ED9A8]")
   }, String(r.day_type).toUpperCase());
-  const prescriptionList = (row, parsed) => parsed.exercises.length >= 2 ? /*#__PURE__*/React.createElement("div", {
-    className: "mt-3 space-y-1.5"
-  }, parsed.exercises.map((p, i) => /*#__PURE__*/React.createElement("div", {
+  // Each movement's logged history (this phone + the Sheet): top set per session, newest first.
+  const normMove = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const movementLog = (() => {
+    const seenSession = new Set();
+    const byName = new Map();
+    [...sessions, ...sheetSessions].forEach(s => {
+      if (seenSession.has(s.id)) return;
+      seenSession.add(s.id);
+      (s.exercises || []).forEach(e => {
+        // Bodyweight/band sets count with weight 0, so "BW×12" is still history.
+        const sets = (e.sets || []).map(x => ({
+          w: parseFloat(x.weight) || 0,
+          r: parseInt(x.reps, 10)
+        })).filter(x => x.r > 0);
+        if (!sets.length) return;
+        const top = sets.reduce((a, b) => b.w > a.w || b.w === a.w && b.r > a.r ? b : a);
+        const k = normMove(e.name);
+        const list = byName.get(k) || [];
+        if (!list.some(h => h.date === s.date)) list.push({
+          date: s.date,
+          name: e.name,
+          w: top.w,
+          r: top.r
+        });
+        byName.set(k, list);
+      });
+    });
+    // A short name that only one longer logged name ends with is the same movement
+    // ("calf raise" -> "standing calf raise"), so its history isn't split in two.
+    [...byName.keys()].forEach(a => {
+      const longer = [...byName.keys()].filter(b => b !== a && b.endsWith(" " + a));
+      if (longer.length !== 1) return;
+      const into = byName.get(longer[0]);
+      byName.get(a).forEach(h => {
+        const same = into.find(x => x.date === h.date);
+        if (!same) into.push(h);else if (h.w > same.w || h.w === same.w && h.r > same.r) Object.assign(same, {
+          w: h.w,
+          r: h.r
+        });
+      });
+      byName.set(a, into);
+    });
+    byName.forEach(l => l.sort((a, b) => a.date < b.date ? 1 : -1));
+    return byName;
+  })();
+  const mostUsedName = hist => {
+    const c = {};
+    hist.forEach(h => {
+      c[h.name] = (c[h.name] || 0) + 1;
+    });
+    return Object.keys(c).sort((a, b) => c[b] - c[a] || (/[A-Z]/.test(b[1] || "") ? 1 : 0) - (/[A-Z]/.test(a[1] || "") ? 1 : 0))[0];
+  };
+  const fmtW = n => String(Math.round(n * 10) / 10);
+  const shortDate = iso => dayLabel(iso, {
+    month: "short",
+    day: "numeric"
+  });
+  // How today's target compares with the last time this movement was logged.
+  const changeVsLast = (p, name) => {
+    const last = (movementLog.get(normMove(name)) || []).find(h => h.date < todayIso);
+    const w = parseFloat(p.weight);
+    const repsGoal = parseInt(String(p.reps).split("-").pop(), 10);
+    if (!last) return {
+      dir: "new",
+      text: "New on your plan, no logged history yet."
+    };
+    const lastTxt = `${last.w > 0 ? fmtW(last.w) : "BW"}×${last.r} on ${shortDate(last.date)}`;
+    if (!(w > 0) && last.w === 0) return repsGoal > last.r ? {
+      dir: "up",
+      text: `Up to ${repsGoal} reps from last time (${lastTxt}).`
+    } : {
+      dir: "same",
+      text: `Same as last time (${lastTxt}).`
+    };
+    if (!(w > 0)) return {
+      dir: "same",
+      text: `Last time: ${lastTxt}.`
+    };
+    if (w > last.w) return {
+      dir: "up",
+      text: `Up ${fmtW(w - last.w)} lb from last time (${lastTxt}).`
+    };
+    if (w < last.w) return {
+      dir: "down",
+      text: `Down ${fmtW(last.w - w)} lb from last time (${lastTxt}).`
+    };
+    return {
+      dir: repsGoal > last.r ? "up" : "same",
+      text: `Same weight as last time (${lastTxt})${repsGoal > last.r ? ", going for more reps." : "."}`
+    };
+  };
+  // A plan note that talks about one movement ("Trap bar up after 275x6") belongs with it.
+  const noteMatches = (note, name) => {
+    const words = normMove(name).split(" ");
+    const key = words.slice(0, Math.min(2, words.length)).join(" ");
+    return key.length > 3 && normMove(note).includes(key);
+  };
+  const DIR_STYLE = {
+    up: ["↑", "text-[#7ED9A8]"],
+    down: ["↓", "text-[#e0b877]"],
+    same: ["=", "text-white/50"],
+    new: ["★", "text-[#A66CFF]"]
+  };
+  const prescriptionList = (row, parsed) => {
+    if (parsed.exercises.length < 2) return row.prescription && /*#__PURE__*/React.createElement("div", {
+      className: "mt-3 text-[14px] text-white/80 leading-relaxed"
+    }, row.prescription);
+    const rows = parsed.exercises.map((p, i) => {
+      const name = canonicalMovement(p.name);
+      const ch = changeVsLast(p, name);
+      const [icon, color] = DIR_STYLE[ch.dir];
+      const note = row.note && noteMatches(row.note, name) ? row.note : "";
+      return /*#__PURE__*/React.createElement("div", {
+        key: i,
+        className: "py-2.5 border-b border-white/5 last:border-b-0"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex justify-between gap-3 text-[15px]"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-white font-semibold"
+      }, name), /*#__PURE__*/React.createElement("span", {
+        className: "text-white/80 tabular-nums shrink-0"
+      }, `${p.sets}×${p.reps}${p.perSide ? " each" : ""}${p.weight ? ` @ ${p.weight}${p.weightHigh ? "-" + p.weightHigh : ""}` : ""}`)), /*#__PURE__*/React.createElement("div", {
+        className: "text-[12px] mt-0.5 " + color
+      }, icon, " ", ch.text), (p.cue || note) && /*#__PURE__*/React.createElement("div", {
+        className: "text-[12px] text-white/45 mt-0.5"
+      }, [note, p.cue].filter(Boolean).join(" · ")));
+    });
+    return /*#__PURE__*/React.createElement("div", {
+      className: "mt-2"
+    }, ...rows, parsed.extras.length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "text-[12px] text-white/40 pt-2"
+    }, "Also: ", parsed.extras.join(" · ")));
+  };
+  // Progress: best recent set vs where each regular lift stood ~3-10 weeks ago (estimated-1RM).
+  const e1rm = h => h.w * (1 + h.r / 30);
+  const progressRows = (() => {
+    const out = [];
+    const cutRecent = addDaysIso(todayIso, -21),
+      cutOld = addDaysIso(todayIso, -70);
+    new Set(movementLog.values()).forEach(hist => {
+      const inWindow = hist.filter(h => h.w > 0 && h.date >= cutOld && h.date <= todayIso);
+      const recent = inWindow.filter(h => h.date >= cutRecent);
+      const earlier = inWindow.filter(h => h.date < cutRecent);
+      if (!recent.length || !earlier.length) return;
+      const now = recent.reduce((a, b) => e1rm(b) > e1rm(a) ? b : a);
+      const then = earlier[earlier.length - 1];
+      out.push({
+        name: mostUsedName(hist),
+        now,
+        then,
+        pct: (e1rm(now) / e1rm(then) - 1) * 100,
+        n: inWindow.length
+      });
+    });
+    return out.sort((a, b) => b.n - a.n).slice(0, 6);
+  })();
+  // A 2-3 line intro: what kind of day it is and what's changing, then any general
+  // plan note and the morning email's top tip. Movement-specific notes stay on their row.
+  const generalNote = todayRow && todayRow.note && !(todayIsLift && todayParsed.exercises.some(p => noteMatches(todayRow.note, canonicalMovement(p.name)))) ? todayRow.note : "";
+  const introLines = (() => {
+    if (!todayRow) return [];
+    const kind = String(todayRow.day_type || "").toUpperCase() === "HARD" ? "Hard day" : String(todayRow.day_type || "").toUpperCase() === "EASY" ? "Easy day" : "";
+    let first = "";
+    if (todayIsLift) {
+      const changes = todayParsed.exercises.map(p => {
+        const name = canonicalMovement(p.name);
+        return {
+          name,
+          p,
+          ch: changeVsLast(p, name)
+        };
+      });
+      const ups = changes.filter(c => c.ch.dir === "up").map(c => {
+        const m = c.ch.text.match(/^Up (\d+(?:\.\d+)?) lb/);
+        return c.name + (m ? ` (+${m[1]} lb)` : " (more reps)");
+      });
+      const news = changes.filter(c => c.ch.dir === "new").map(c => c.name);
+      const list = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length - 1] : a[0];
+      first = ups.length ? `moving up on ${list(ups)}; holding the rest.` : "holding your weights; focus on clean, solid reps.";
+      if (news.length) first += ` First time on ${list(news)}.`;
+    }
+    const lead = kind && first ? `${kind}: ${first}` : kind ? `${kind}.` : first;
+    return [lead, generalNote, recapFocus[0]].filter(Boolean).slice(0, 3);
+  })();
+  // Sits above the workout card: a short briefing before the workout itself.
+  const intro = introLines.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "mb-4 px-1 space-y-1.5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: eyebrow
+  }, "Today's briefing"), introLines.map((l, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
-    className: "flex justify-between gap-3 text-[14px]"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-white/90"
-  }, canonicalMovement(p.name)), /*#__PURE__*/React.createElement("span", {
-    className: "text-white/50 tabular-nums shrink-0"
-  }, `${p.sets}×${p.reps}${p.perSide ? " each" : ""}${p.weight ? ` @ ${p.weight}${p.weightHigh ? "-" + p.weightHigh : ""}` : ""}`))), parsed.extras.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "text-[12px] text-white/40 pt-1"
-  }, "Also: ", parsed.extras.join(" · "))) : row.prescription && /*#__PURE__*/React.createElement("div", {
-    className: "mt-3 text-[14px] text-white/80 leading-relaxed"
-  }, row.prescription);
+    className: "leading-snug " + (i === 0 ? "text-[16px] text-white" : "text-[14px] text-white/60")
+  }, l)));
   const todayCard = /*#__PURE__*/React.createElement("div", {
     className: "bg-[#1f1f1f] border border-[#A66CFF]/50 rounded-2xl p-4 mb-4"
   }, /*#__PURE__*/React.createElement("div", {
@@ -4294,18 +4473,7 @@ function App() {
     className: "bebas text-[36px] leading-none text-white mt-2"
   }, todayRow.session), dayStatus(todayIso) === "done" && /*#__PURE__*/React.createElement("div", {
     className: "text-[12px] text-[#7ED9A8] font-semibold mt-1"
-  }, "✓ Logged today"), (todayRow.note || recapFocus.length > 0) && /*#__PURE__*/React.createElement("div", {
-    className: "mt-3 bg-[#141414] rounded-xl px-3.5 py-3"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: eyebrow + " mb-1"
-  }, "Why"), todayRow.note && /*#__PURE__*/React.createElement("div", {
-    className: "text-[14px] text-white/85 leading-relaxed"
-  }, todayRow.note), recapFocus.map((f, i) => /*#__PURE__*/React.createElement("div", {
-    key: i,
-    className: "flex gap-2 text-[13px] text-white/70 leading-relaxed mt-1"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[#A66CFF] shrink-0"
-  }, "›"), /*#__PURE__*/React.createElement("span", null, f)))), prescriptionList(todayRow, todayParsed), todayIsLift && /*#__PURE__*/React.createElement("button", {
+  }, "✓ Logged today"), prescriptionList(todayRow, todayParsed), todayIsLift && /*#__PURE__*/React.createElement("button", {
     onClick: () => loadPlannedWorkout(todayRow),
     className: "bebas w-full mt-4 bg-[#A66CFF] text-[#141414] rounded-2xl py-3.5 text-[18px] tracking-[0.05em]"
   }, "LOAD THIS WORKOUT")) : /*#__PURE__*/React.createElement("div", {
@@ -4362,10 +4530,34 @@ function App() {
   }, "This week"), /*#__PURE__*/React.createElement("div", {
     className: "mt-2"
   }, ...weekRows), weekStats);
+  const progressCard = progressRows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: card
+  }, /*#__PURE__*/React.createElement("span", {
+    className: eyebrow
+  }, "Progress · last 10 weeks"), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2"
+  }, ...progressRows.map(pr => {
+    const dir = pr.pct >= 1 ? "up" : pr.pct <= -1 ? "down" : "same";
+    const [icon, color] = DIR_STYLE[dir];
+    return /*#__PURE__*/React.createElement("div", {
+      key: pr.name,
+      className: "py-2 border-b border-white/5 last:border-b-0"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex justify-between gap-3"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-[14px] text-white font-semibold truncate"
+    }, pr.name), /*#__PURE__*/React.createElement("span", {
+      className: "text-[13px] font-semibold shrink-0 " + color
+    }, icon, " ", dir === "same" ? "holding" : `${pr.pct > 0 ? "+" : ""}${Math.round(pr.pct)}%`)), /*#__PURE__*/React.createElement("div", {
+      className: "text-[12px] text-white/45 mt-0.5 tabular-nums"
+    }, `${fmtW(pr.then.w)}×${pr.then.r} on ${shortDate(pr.then.date)} → ${fmtW(pr.now.w)}×${pr.now.r} on ${shortDate(pr.now.date)}`));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] text-white/30 mt-2"
+  }, "Compares your best recent set with where you started, counting both weight and reps."));
   const todayNotice = !cfg.url ? "Connect your Sheet in Settings to see your plan here." : planUnavailable && !planList.length ? "Your Sheet's script needs a small update before your plan can show here." : "";
   const todayView = /*#__PURE__*/React.createElement("div", null, todayNotice ? /*#__PURE__*/React.createElement("div", {
     className: card + " text-[14px] text-white/60"
-  }, todayNotice) : /*#__PURE__*/React.createElement(React.Fragment, null, todayCard, tomorrowCard, weekCard, todayLoading && /*#__PURE__*/React.createElement("div", {
+  }, todayNotice) : /*#__PURE__*/React.createElement(React.Fragment, null, intro, todayCard, tomorrowCard, weekCard, progressCard, todayLoading && /*#__PURE__*/React.createElement("div", {
     className: "text-[11px] text-white/30 text-center"
   }, "Updating…")));
   const syncNotice = cfg.url && pendingCount > 0 && /*#__PURE__*/React.createElement("button", {
@@ -4450,7 +4642,11 @@ function App() {
       paddingBottom: "max(2.5rem, env(safe-area-inset-bottom))"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-5 pb-3 border-b border-white/10"
+    className: "sticky top-0 z-30 -mx-4 px-4 mb-5 pb-3 bg-[#09090b]/95 backdrop-blur border-b border-white/10 flex items-center justify-between",
+    style: {
+      marginTop: "calc(-1 * max(1.25rem, env(safe-area-inset-top)))",
+      paddingTop: "max(1.25rem, env(safe-area-inset-top))"
+    }
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setMenuOpen(true),
     "aria-label": "Menu",
