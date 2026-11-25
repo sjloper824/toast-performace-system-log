@@ -4324,8 +4324,8 @@ function App() {
     day: "numeric"
   });
   // How today's target compares with the last time this movement was logged.
-  const changeVsLast = (p, name) => {
-    const last = (movementLog.get(normMove(name)) || []).find(h => h.date < todayIso);
+  const changeVsLast = (p, name, before = todayIso) => {
+    const last = (movementLog.get(normMove(name)) || []).find(h => h.date < before);
     const w = parseFloat(p.weight);
     const repsGoal = parseInt(String(p.reps).split("-").pop(), 10);
     if (!last) return {
@@ -4369,13 +4369,13 @@ function App() {
     same: ["=", "text-white/50"],
     new: ["★", "text-[#A66CFF]"]
   };
-  const prescriptionList = (row, parsed) => {
+  const prescriptionList = (row, parsed, before = todayIso) => {
     if (parsed.exercises.length < 2) return row.prescription && /*#__PURE__*/React.createElement("div", {
       className: "mt-3 text-[14px] text-white/80 leading-relaxed"
     }, row.prescription);
     const rows = parsed.exercises.map((p, i) => {
       const name = canonicalMovement(p.name);
-      const ch = changeVsLast(p, name);
+      const ch = changeVsLast(p, name, before);
       const [icon, color] = DIR_STYLE[ch.dir];
       const note = row.note && noteMatches(row.note, name) ? row.note : "";
       return /*#__PURE__*/React.createElement("div", {
@@ -4425,30 +4425,60 @@ function App() {
   // A 2-3 line intro: what kind of day it is and what's changing, then any general
   // plan note and the morning email's top tip. Movement-specific notes stay on their row.
   const generalNote = todayRow && todayRow.note && !(todayIsLift && todayParsed.exercises.some(p => noteMatches(todayRow.note, canonicalMovement(p.name)))) ? todayRow.note : "";
+  // Briefing: 2-3 plain lines on what today is for, how it compares, and what's next.
+  const listJoin = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length - 1] : a[0];
+  const upsFor = (row, parsed, before) => parsed.exercises.map(p => {
+    const name = canonicalMovement(p.name);
+    return {
+      name,
+      ch: changeVsLast(p, name, before)
+    };
+  }).filter(c => c.ch.dir === "up").map(c => {
+    const m = c.ch.text.match(/^Up (\d+(?:\.\d+)?) lb/);
+    return c.name + (m ? ` (+${m[1]} lb)` : " (more reps)");
+  });
+  const runSummaries = runRows.filter(r => r.section === "summary" && /run/i.test(r.run_type || "")).map(r => ({
+    date: isoDate(r.date),
+    dist: String(r.distance || ""),
+    hr: parseInt(r.avg_hr, 10) || null
+  })).sort((a, b) => a.date < b.date ? 1 : -1);
+  const runTxt = r => `${r.dist}${r.hr ? ` at avg HR ${r.hr}` : ""}`;
+  const isHardRow = r => !!r && String(r.day_type || "").toUpperCase() === "HARD";
   const introLines = (() => {
     if (!todayRow) return [];
-    const kind = String(todayRow.day_type || "").toUpperCase() === "HARD" ? "Hard day" : String(todayRow.day_type || "").toUpperCase() === "EASY" ? "Easy day" : "";
-    let first = "";
+    const kind = isHardRow(todayRow) ? "Hard day" : String(todayRow.day_type || "").toUpperCase() === "EASY" ? "Easy day" : "";
+    const session = String(todayRow.session || "");
+    const tomorrowParsed = parsePrescription(tomorrowRow && tomorrowRow.prescription);
+    const tomorrowUps = isLiftingSession(tomorrowRow, tomorrowParsed) ? upsFor(tomorrowRow, tomorrowParsed, tomorrowIso) : [];
+    const tDetail = !tomorrowRow ? "" : tomorrowUps.length ? `, with ${tomorrowUps[0].replace(/ \(\+(\S+) lb\)$/, " going up $1 lb")}` : isRestRow(tomorrowRow) ? tomorrowRow.note ? ` (${tomorrowRow.note})` : "" : /\brun\b/i.test(tomorrowRow.session || "") && tomorrowRow.prescription ? ` (${String(tomorrowRow.prescription).split(",")[0]})` : "";
+    const lookAhead = tomorrowRow ? `Tomorrow: ${tomorrowRow.session}${tDetail}${isHardRow(tomorrowRow) && !isHardRow(todayRow) ? ", so keep today easy and recover." : "."}` : "";
+    const weekLine = trainingDays.length ? `${doneDays.length} of ${trainingDays.length} sessions done this week.` : "";
     if (todayIsLift) {
-      const changes = todayParsed.exercises.map(p => {
-        const name = canonicalMovement(p.name);
-        return {
-          name,
-          p,
-          ch: changeVsLast(p, name)
-        };
-      });
-      const ups = changes.filter(c => c.ch.dir === "up").map(c => {
-        const m = c.ch.text.match(/^Up (\d+(?:\.\d+)?) lb/);
-        return c.name + (m ? ` (+${m[1]} lb)` : " (more reps)");
-      });
-      const news = changes.filter(c => c.ch.dir === "new").map(c => c.name);
-      const list = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length - 1] : a[0];
-      first = ups.length ? `moving up on ${list(ups)}; holding the rest.` : "holding your weights; focus on clean, solid reps.";
-      if (news.length) first += ` First time on ${list(news)}.`;
+      const ups = upsFor(todayRow, todayParsed, todayIso);
+      const news = todayParsed.exercises.map(p => canonicalMovement(p.name)).filter(n => changeVsLast({
+        weight: "",
+        reps: ""
+      }, n).dir === "new");
+      let first = ups.length ? `moving up on ${listJoin(ups)}; holding the rest.` : "holding your weights; focus on clean, solid reps.";
+      if (news.length) first += ` First time on ${listJoin(news)}.`;
+      return [kind ? `${kind}: ${first}` : first, generalNote || recapFocus[0], lookAhead].filter(Boolean).slice(0, 3);
     }
-    const lead = kind && first ? `${kind}: ${first}` : kind ? `${kind}.` : first;
-    return [lead, generalNote, recapFocus[0]].filter(Boolean).slice(0, 3);
+    if (/\brun\b/i.test(session)) {
+      const todayRun = runSummaries.find(r => r.date === todayIso);
+      const lastRun = runSummaries.find(r => r.date < todayIso);
+      const goal = todayRow.prescription ? `${todayRow.prescription}.` : "keep it conversational.";
+      const first = todayRun ? `Run done: ${runTxt(todayRun)}${todayRun.hr && /under 150/i.test(todayRow.prescription || "") ? todayRun.hr < 150 ? ", right in the easy zone." : ", a bit above the easy zone." : "."}` : `${kind ? kind + ": " : ""}${goal}`;
+      const second = todayRun ? lastRun ? `Last run before this: ${runTxt(lastRun)} on ${shortDate(lastRun.date)}.` : "" : lastRun ? `Your last run was ${runTxt(lastRun)} on ${shortDate(lastRun.date)}; aim to match that effort or lower.` : "";
+      return [first, generalNote || second, lookAhead].filter(Boolean).slice(0, 3);
+    }
+    const sentence = t => /[.!?]$/.test(t) ? t : t + ".";
+    if (isRestRow(todayRow)) return [sentence(`Rest day${generalNote ? `: ${generalNote}` : ""}`), lookAhead, weekLine].filter(Boolean).slice(0, 3);
+    // CrossFit / other: the first sentence of the prescription, plus any baseline to beat.
+    const rx = String(todayRow.prescription || "");
+    const firstRx = rx.split(/(?<=\.)\s+/)[0];
+    const baseline = (rx.match(/baseline\s+([^.]+?)(?:\s*\(([^)]+)\))?(?:\.|$)/i) || []).slice(1);
+    const baseLine = baseline[0] ? `Your baseline is ${baseline[0].trim()}${baseline[1] ? ` from ${baseline[1]}` : ""}; try to beat it.` : "";
+    return [sentence(`${kind ? kind + ": " : ""}${firstRx && firstRx !== rx.slice(0, 0) ? firstRx.replace(/\.$/, "") : session}`), baseLine || (generalNote ? sentence(generalNote) : "") || recapFocus[0], lookAhead || weekLine].filter(Boolean).slice(0, 3);
   })();
   // Sits above the workout card: a short briefing before the workout itself.
   const intro = introLines.length > 0 && /*#__PURE__*/React.createElement("div", {
@@ -4479,6 +4509,9 @@ function App() {
   }, "LOAD THIS WORKOUT")) : /*#__PURE__*/React.createElement("div", {
     className: "text-[14px] text-white/60 mt-2"
   }, "Nothing planned for today yet. Plan it in your planning chat and it'll show up here."));
+  // Tomorrow gets the same per-movement detail as today; a note about one movement sits on its row.
+  const tomorrowParsedCard = parsePrescription(tomorrowRow && tomorrowRow.prescription);
+  const tomorrowGeneralNote = tomorrowRow && tomorrowRow.note && !(isLiftingSession(tomorrowRow, tomorrowParsedCard) && tomorrowParsedCard.exercises.some(p => noteMatches(tomorrowRow.note, canonicalMovement(p.name)))) ? tomorrowRow.note : "";
   const tomorrowCard = /*#__PURE__*/React.createElement("div", {
     className: card
   }, /*#__PURE__*/React.createElement("div", {
@@ -4489,11 +4522,9 @@ function App() {
     weekday: "short"
   })), dayTypeChip(tomorrowRow)), /*#__PURE__*/React.createElement("div", {
     className: "bebas text-[24px] leading-none text-white mt-2"
-  }, tomorrowRow ? tomorrowRow.session : "Not planned yet"), tomorrowRow && tomorrowRow.note && /*#__PURE__*/React.createElement("div", {
+  }, tomorrowRow ? tomorrowRow.session : "Not planned yet"), tomorrowGeneralNote && /*#__PURE__*/React.createElement("div", {
     className: "text-[13px] text-white/60 mt-1.5 leading-relaxed"
-  }, tomorrowRow.note), tomorrowRow && tomorrowRow.prescription && !isRestRow(tomorrowRow) && /*#__PURE__*/React.createElement("div", {
-    className: "text-[12px] text-white/40 mt-1.5 leading-relaxed line-clamp-2"
-  }, tomorrowRow.prescription));
+  }, tomorrowGeneralNote), tomorrowRow && !isRestRow(tomorrowRow) && prescriptionList(tomorrowRow, tomorrowParsedCard, tomorrowIso));
   const weekRows = weekDays.map(iso => {
     const r = planFor(iso);
     const st = dayStatus(iso);
