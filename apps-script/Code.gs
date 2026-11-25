@@ -69,6 +69,10 @@ const WEIGHT_HEADER = ['date', 'lb', 'logged_at'];
 const WORKOUT_SHEET_NAME = 'Workouts';
 const WORKOUT_HEADER = ['workout_id', 'workout', 'exercise', 'target', 'sets', 'per_side'];
 
+// ----- Plan (day-by-day schedule; written by planning chats + the morning email) -----
+const PLAN_SHEET_NAME = 'Plan';
+const PLAN_HEADER = ['date', 'weekday', 'session', 'day_type', 'prescription', 'status', 'note', 'updated_by', 'updated_at'];
+
 // =====================================================================
 //  STRENGTH
 // =====================================================================
@@ -107,6 +111,7 @@ function doPost(e) {
 //        ?token=...&tab=runs      -> Runs tab
 //        ?token=...&tab=weight    -> Weight tab
 //        ?token=...&tab=workouts  -> Workouts tab
+//        ?token=...&tab=plan      -> Plan tab (day-by-day schedule)
 //        ?token=...&tab=nutrition -> Nutrition tab (optionally &date=YYYY-MM-DD)
 //        ?token=...&tab=recap     -> newest recap file
 function doGet(e) {
@@ -125,6 +130,7 @@ function doGet(e) {
   if (p === 'runs') { tab = RUN_SHEET_NAME; header = RUN_HEADER; }
   else if (p === 'weight') { tab = WEIGHT_SHEET_NAME; header = WEIGHT_HEADER; }
   else if (p === 'workouts') { tab = WORKOUT_SHEET_NAME; header = WORKOUT_HEADER; }
+  else if (p === 'plan') { tab = PLAN_SHEET_NAME; header = PLAN_HEADER; }
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sh = ss.getSheetByName(tab);

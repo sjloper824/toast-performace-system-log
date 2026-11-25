@@ -20,6 +20,7 @@
 - POST with JSON body: {token, session} | {token, meal} | {token, weight} | {token, deleteMeal} | {token, saveWorkout|renameWorkout|deleteWorkout}.
 - Nutrition tab has a meal_type column (added Nov 2026; earlier rows are blank → show as Lunch).
 - Recommend matches history by normalized movement name (case/plural/"dumbbell"→db etc.) and, when an exercise has <2 dated sessions, adds up to 2 similar movements as a guide.
+- Plan tab (tab=plan): one row per date (date, weekday, session, day_type, prescription, status, note, updated_by, updated_at), written by planning chats + the morning email. The Today view parses `prescription` text ("trap bar deadlift 3x6 @ 285; ... + ...") with parsePrescription.
 - Workouts tab = the app's workout picker: one row per movement (workout_id, workout, exercise, target, sets, per_side). Rows without an id are keyed "sheet:<title>" by both app and script. If the backend doesn't serve it, the app falls back to built-in TEMPLATES + local presets.
 
 ## Strength sync (app -> Sheet)
@@ -59,6 +60,7 @@ Weight/reps inputs should default to a numeric keypad (inputMode=decimal/numeric
 ## RELEASE QUEUE -- waiting for Netlify credits (next reset Dec 1, 2026)
 Live-site deploys are paused until credits reset (14 left in Nov; one deploy = 15). Everything below is stacked on branch `claude/nice-planck-4qwzq5` in PR #3 (https://github.com/sjloper824/toast-performace-system-log/pull/3) and goes live with ONE merge.
 - [ ] Strength sync fix: upload starts before the form resets (save-crash on self-made workouts), auto-retry of unsynced sessions, re-entry dedupe, "waiting to sync · Sync now" notice.
+- [ ] Today dashboard (new home screen): today's planned session from the Plan tab with the why (plan note + morning email focus), LOAD THIS WORKOUT fills Workouts with the plan's weights (Recommend fills any the plan leaves open), tomorrow, and this week (status per day + sessions / run miles / calories / weight). Needs backend tab=plan (in apps-script/Code.gs, NOT yet deployed by Steve: one laptop paste + New version).
 - [ ] Workout picker from the Sheet's Workouts tab + Rename / Remove / Save Workout in the app; phone-only presets (e.g. "[OS] Day B - Trap bar") copied into the Sheet on first load.
 - Merge-day checks: credits show reset in Netlify Usage -> merge PR #3 -> on the phone: picker lists the Sheet workouts, Day B appears in the Workouts tab, and a saved session shows up in the Strength tab within seconds.
 - Add new app changes to this same branch/PR and to this list; don't merge to main before Dec 1.
